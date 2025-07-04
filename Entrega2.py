@@ -915,7 +915,7 @@ def informe_matriz_cantidades(reservas, habitaciones):
     print("-" * len(encabezado))
 
 def informe_matriz_montos(reservas, habitaciones):
-    """Informe 3: Muestra la plata total facturada por mes para cada habitación, con formato tabular alineado."""
+    """Informe 3: Muestra la plata total facturada por mes para cada habitación, con formato tabular compacto."""
     print("\n--- Resumen de montos totales por mes ---")
     anio_str = input("Ingrese el año para el informe (AAAA): ")
     if not (anio_str.isdigit() and len(anio_str) == 4):
@@ -937,13 +937,13 @@ def informe_matriz_montos(reservas, habitaciones):
                 if reserva_anio == anio:
                     monto = habitaciones[hab_id]["precioNoche"] * datos["cantidadNoches"] * (1 - datos["descuento"]/100)
                     matriz[hab_id][reserva_mes] += monto
-    encabezado = f"{'Habitación':<12} |" + ''.join([f" {nombre:>10} |" for nombre in nombres_mes])
+    encabezado = f"{'Hab':<8}|" + ''.join([f"{nombre:>6}|" for nombre in nombres_mes])
     print("-" * len(encabezado))
     print(encabezado)
     print("-" * len(encabezado))
     for hab_id, meses in matriz.items():
         num_hab = habitaciones.get(hab_id, {}).get('numero', hab_id)
-        linea = f"{str(num_hab):<12} |" + ''.join([f" {meses[mes]:10.2f} |" for mes in range(1, 13)])
+        linea = f"{str(num_hab):<8}|" + ''.join([f"{int(meses[mes]):6}|" for mes in range(1, 13)])
         print(linea)
     print("-" * len(encabezado))
 
