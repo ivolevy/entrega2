@@ -323,21 +323,24 @@ def inactivar_huesped(huespedes_archivo="huespedes.json"):
         print("Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
         return
     idh = input_id_huesped("ID del huésped a inactivar: ")
-    if idh in huespedes and huespedes[idh]["activo"]:
-        nombre = huespedes[idh]['nombre'] + ' ' + huespedes[idh]['apellido']
-        confirm = input_opciones(f"¿Está seguro de inactivar a {nombre}? (s/n): ", ["s", "n"])
-        if confirm == "s":
-            huespedes[idh]["activo"] = False
-            try:
-                with open(huespedes_archivo, mode='w', encoding='utf-8') as f:
-                    json.dump(huespedes, f, ensure_ascii=False, indent=4)
-                print("Huésped inactivado.")
-            except (FileNotFoundError, OSError) as detalle:
-                print("Error al intentar guardar archivo(s):", detalle)
-        else:
-            print("Operación cancelada.")
+    if idh not in huespedes:
+        print("No existe un huésped con ese ID.")
+        return
+    if not huespedes[idh]["activo"]:
+        print("El huésped ya está inactivo.")
+        return
+    nombre = huespedes[idh]['nombre'] + ' ' + huespedes[idh]['apellido']
+    confirm = input_opciones(f"¿Está seguro de inactivar a {nombre}? (s/n): ", ["s", "n"])
+    if confirm == "s":
+        huespedes[idh]["activo"] = False
+        try:
+            with open(huespedes_archivo, mode='w', encoding='utf-8') as f:
+                json.dump(huespedes, f, ensure_ascii=False, indent=4)
+            print("Huésped inactivado.")
+        except (FileNotFoundError, OSError) as detalle:
+            print("Error al intentar guardar archivo(s):", detalle)
     else:
-        print("No existe o ya está inactivo.")
+        print("Operación cancelada.")
 
 def listar_huespedes_activos(huespedes_archivo="huespedes.json"):
     """Lista todos los huéspedes activos leyendo desde archivo JSON, con formato tabular alineado."""
