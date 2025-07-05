@@ -24,6 +24,7 @@ import json
 import re
 import random
 import string
+import shutil
 
 #----------------------------------------------------------------------------------------------
 # FUNCIONES
@@ -105,10 +106,15 @@ def validar_dni(dni):
     return dni.isdigit() and 6 <= len(dni) <= 8
 
 def validar_telefono(telefono):
-    """Valida que el teléfono tenga entre 7 y 15 caracteres numéricos."""
-    if isinstance(telefono, int):
-        telefono = str(telefono)
-    return telefono.isdigit() and 7 <= len(telefono) <= 15
+    # Permitir + solo al inicio, y solo si hay más de 7 dígitos después
+    if telefono.startswith('+'):
+        resto = telefono[1:]
+        if not (resto.isdigit() and 7 <= len(resto) <= 15):
+            return False
+    else:
+        if not (telefono.isdigit() and 7 <= len(telefono) <= 15):
+            return False
+    return True
 
 def validar_id_huesped(idh):
     """Valida que el ID del huésped tenga entre 2 y 6 caracteres."""
@@ -212,9 +218,31 @@ def normalizar_texto(texto):
         texto_normalizado = texto_normalizado.replace(acento, sin_acento)
     return texto_normalizado.lower()
 
+def limpiar_espacios(texto):
+    """Elimina espacios dobles y espacios iniciales/finales de un texto."""
+    partes = texto.strip().split()
+    return ' '.join(partes)
+
+def guardar_json_backup(ruta):
+    """Hace un backup automático del archivo JSON antes de sobrescribirlo."""
+    try:
+        shutil.copy(ruta, ruta + ".bak")
+    except Exception:
+        pass
+
+def guardar_reservas(reservas, archivo="reservas.json"):
+    guardar_json_backup(archivo)
+    with open(archivo, mode='w', encoding='utf-8') as f:
+        json.dump(reservas, f, ensure_ascii=False, indent=4)
+
 #----------------------------------------------------------------------------------------------
 # CRUD HUESPEDES
 #----------------------------------------------------------------------------------------------
+def guardar_huespedes(huespedes, archivo="huespedes.json"):
+    guardar_json_backup(archivo)
+    with open(archivo, mode='w', encoding='utf-8') as f:
+        json.dump(huespedes, f, ensure_ascii=False, indent=4)
+
 def alta_huesped(huespedes_archivo="huespedes.json"):
     """Da de alta un huésped nuevo, persistiendo en archivo JSON."""
     print("\n--- Alta de huésped ---")
@@ -236,6 +264,9 @@ def alta_huesped(huespedes_archivo="huespedes.json"):
     email = input_email_validado("Email: ")
     telefono = input_telefono("Teléfono: ")
     medio_pago = input_medio_pago("Medio de pago: ")
+    nombre = limpiar_espacios(nombre)
+    apellido = limpiar_espacios(apellido)
+    email = limpiar_espacios(email)
     huespedes[idh] = {
         "activo": True,
         "nombre": nombre,
@@ -245,12 +276,8 @@ def alta_huesped(huespedes_archivo="huespedes.json"):
         "telefono": telefono,
         "mediosDePago": [medio_pago]
     }
-    try:
-        with open(huespedes_archivo, mode='w', encoding='utf-8') as f:
-            json.dump(huespedes, f, ensure_ascii=False, indent=4)
-        print(f"Huésped {nombre} {apellido} agregado correctamente.")
-    except (FileNotFoundError, OSError) as detalle:
-        print("Error al intentar guardar archivo(s):", detalle)
+    guardar_huespedes(huespedes)
+    print(f"Huésped {nombre} {apellido} agregado correctamente.")
 
 def modificar_huesped(huespedes_archivo="huespedes.json"):
     """Permite modificar todos los datos de un huésped activo, persistiendo en archivo JSON."""
@@ -273,9 +300,9 @@ def modificar_huesped(huespedes_archivo="huespedes.json"):
                 nuevo = input(f"Nuevo {campo} (actual: {actual}): ").strip()
                 if not nuevo:  # Si está vacío, no modificar
                     break
-                if campo in ["nombre", "apellido"]:
+                if campo in ["nombre", "apellido", "email"]:
                     if validar_nombre_apellido(nuevo):
-                        huespedes[idh][campo] = nuevo
+                        huespedes[idh][campo] = limpiar_espacios(nuevo)
                         break
                     else:
                         print("Nombre/Apellido inválido. Debe tener entre 2 y 20 caracteres y solo contener letras.")
@@ -299,12 +326,6 @@ def modificar_huesped(huespedes_archivo="huespedes.json"):
                         break
                     else:
                         print("Teléfono inválido. Debe tener entre 7 y 15 dígitos numéricos.")
-                elif campo == "email":
-                    if validar_email_regex(nuevo):
-                        huespedes[idh][campo] = nuevo
-                        break
-                    else:
-                        print("Email inválido. Debe contener @ y tener un formato válido.")
         mp_actual = ', '.join(huespedes[idh]["mediosDePago"])
         while True:
             nuevo_mp = input(f"Nuevo medio de pago (actual: {mp_actual}): ").strip()
@@ -332,46 +353,39 @@ def modificar_huesped(huespedes_archivo="huespedes.json"):
                 break
             else:
                 print(f"Medio de pago inválido. Opciones válidas: {', '.join(opciones_validas)}.")
-        try:
-            with open(huespedes_archivo, mode='w', encoding='utf-8') as f:
-                json.dump(huespedes, f, ensure_ascii=False, indent=4)
-            print("Huésped modificado correctamente.")
-        except (FileNotFoundError, OSError) as detalle:
-            print("Error al intentar guardar archivo(s):", detalle)
+        guardar_huespedes(huespedes)
+        print("Huésped modificado correctamente.")
     else:
         print("No existe o está inactivo.")
 
-def inactivar_huesped(huespedes_archivo="huespedes.json"):
-    """Realiza la baja lógica de un huésped activo, persistiendo en archivo JSON."""
+def eliminar_huesped(huespedes, reservas):
+    """Realiza la baja lógica de un huésped solo si no tiene reservas activas o futuras."""
     print("\n--- Eliminar (baja lógica) huésped ---")
-    try:
-        with open(huespedes_archivo, mode='r', encoding='utf-8') as f:
-            huespedes = json.load(f)
-    except FileNotFoundError:
-        print("El archivo de huéspedes no existe. No hay datos para modificar.")
-        return
-    except OSError as detalle:
-        print("Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
-        return
-    idh = input_id_huesped("ID del huésped a inactivar: ")
+    idh = input("ID huésped a eliminar: ").strip()
     if idh not in huespedes:
         print("No existe un huésped con ese ID.")
         return
     if not huespedes[idh]["activo"]:
         print("El huésped ya está inactivo.")
         return
-    nombre = huespedes[idh]['nombre'] + ' ' + huespedes[idh]['apellido']
-    confirm = input_opciones(f"¿Está seguro de inactivar a {nombre}? (s/n): ", ["s", "n"])
+    # Verificar reservas activas o futuras
+    tiene_reservas = False
+    for rid, datos in reservas.items():
+        if datos["idhuesped"] == idh:
+            # Si la reserva es futura o activa (no finalizada)
+            if not datos.get("finalizada", False):
+                tiene_reservas = True
+                break
+    if tiene_reservas:
+        print("No se puede dar de baja: el huésped tiene reservas activas o futuras.")
+        return
+    confirm = input("¿Confirma la baja lógica del huésped? (s/n): ").strip().lower()
     if confirm == "s":
         huespedes[idh]["activo"] = False
-        try:
-            with open(huespedes_archivo, mode='w', encoding='utf-8') as f:
-                json.dump(huespedes, f, ensure_ascii=False, indent=4)
-            print("Huésped inactivado.")
-        except (FileNotFoundError, OSError) as detalle:
-            print("Error al intentar guardar archivo(s):", detalle)
+        print("Huésped dado de baja lógicamente.")
     else:
         print("Operación cancelada.")
+    guardar_huespedes(huespedes)
 
 def listar_huespedes_activos(huespedes_archivo="huespedes.json"):
     """Lista todos los huéspedes activos leyendo desde archivo JSON, con formato tabular alineado."""
@@ -433,6 +447,11 @@ def buscar_huespedes(huespedes_archivo="huespedes.json"):
 #----------------------------------------------------------------------------------------------
 # CRUD HABITACIONES
 #----------------------------------------------------------------------------------------------
+def guardar_habitaciones(habitaciones, archivo="habitaciones.json"):
+    guardar_json_backup(archivo)
+    with open(archivo, mode='w', encoding='utf-8') as f:
+        json.dump(habitaciones, f, ensure_ascii=False, indent=4)
+
 def alta_habitacion(habitaciones_archivo="habitaciones.json"):
     """Da de alta una habitación nueva, persistiendo en archivo JSON."""
     print("\n--- Alta de habitación ---")
@@ -486,6 +505,7 @@ def alta_habitacion(habitaciones_archivo="habitaciones.json"):
             print("Descripción inválida. Solo puede contener letras, números, comas, puntos y espacios.")
             continue
         break
+    descripcion = limpiar_espacios(descripcion)
     # Precio por noche
     while True:
         precio = input("Precio por noche: ").strip()
@@ -519,13 +539,19 @@ def alta_habitacion(habitaciones_archivo="habitaciones.json"):
             continue
         estado = estados_validos[estados_normalizados.index(estado_norm)]
         break
+    estado = limpiar_espacios(estado)
     # Servicios incluidos
     while True:
         servicios = input("Servicios incluidos (separados por coma): ").strip()
-        if not (2 <= len(servicios) <= 50):
+        serviciosIncluidos = limpiar_espacios(servicios)
+        servicios_lista = [s.strip() for s in serviciosIncluidos.split(',') if s.strip()]
+        if len(serviciosIncluidos) < 2 or len(serviciosIncluidos) > 50:
             print("Servicios inválidos. Debe tener entre 2 y 50 caracteres.")
-            continue
-        break
+        elif len(servicios_lista) == 0 or '' in servicios_lista:
+            print("Debe ingresar al menos un servicio válido, separados por coma y sin espacios vacíos.")
+        else:
+            serviciosIncluidos = ', '.join(servicios_lista)
+            break
     habitaciones[idh] = {
         "activo": True,
         "numero": numero,
@@ -534,14 +560,10 @@ def alta_habitacion(habitaciones_archivo="habitaciones.json"):
         "precioNoche": precio,
         "piso": piso,
         "estado": estado,
-        "serviciosIncluidos": servicios
+        "serviciosIncluidos": serviciosIncluidos
     }
-    try:
-        with open(habitaciones_archivo, mode='w', encoding='utf-8') as f:
-            json.dump(habitaciones, f, ensure_ascii=False, indent=4)
-        print(f"Habitación {numero} agregada correctamente.")
-    except (FileNotFoundError, OSError) as detalle:
-        print("Error al intentar guardar archivo(s):", detalle)
+    guardar_habitaciones(habitaciones)
+    print(f"Habitación {numero} agregada correctamente.")
 
 def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
     """Permite modificar todos los datos de una habitación activa, persistiendo en archivo JSON."""
@@ -612,51 +634,52 @@ def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
                         continue
                     nuevo = estados_validos[estados_normalizados.index(estado_norm)]
                 elif campo == "serviciosIncluidos":
-                    if not (2 <= len(nuevo) <= 50):
-                        print("Servicios inválidos. Debe tener entre 2 y 50 caracteres.")
-                        continue
+                    while True:
+                        nuevo = input("Nuevo valor para servicios incluidos (separados por coma): ").strip()
+                        nuevo = limpiar_espacios(nuevo)
+                        servicios_lista = [s.strip() for s in nuevo.split(',') if s.strip()]
+                        if len(nuevo) < 2 or len(nuevo) > 50:
+                            print("Servicios inválidos. Debe tener entre 2 y 50 caracteres.")
+                        elif len(servicios_lista) == 0 or '' in servicios_lista:
+                            print("Debe ingresar al menos un servicio válido, separados por coma y sin espacios vacíos.")
+                        else:
+                            habitaciones[idh][campo] = ', '.join(servicios_lista)
+                            break
+                nuevo = limpiar_espacios(nuevo)
                 habitaciones[idh][campo] = nuevo
                 break
-        try:
-            with open(habitaciones_archivo, mode='w', encoding='utf-8') as f:
-                json.dump(habitaciones, f, ensure_ascii=False, indent=4)
-            print("Habitación modificada correctamente.")
-        except (FileNotFoundError, OSError) as detalle:
-            print("Error al intentar guardar archivo(s):", detalle)
+        guardar_habitaciones(habitaciones)
+        print("Habitación modificada correctamente.")
     else:
         print("No existe o está inactiva.")
 
-def inactivar_habitacion(habitaciones_archivo="habitaciones.json"):
-    """Realiza la baja lógica de una habitación activa, persistiendo en archivo JSON."""
+def eliminar_habitacion(habitaciones, reservas):
+    """Realiza la baja lógica de una habitación solo si no tiene reservas activas o futuras."""
     print("\n--- Eliminar (baja lógica) habitación ---")
-    try:
-        with open(habitaciones_archivo, mode='r', encoding='utf-8') as f:
-            habitaciones = json.load(f)
-    except FileNotFoundError:
-        print("El archivo de habitaciones no existe. No hay datos para modificar.")
-        return
-    except OSError as detalle:
-        print("Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
-        return
-    idh = input("ID habitación a inactivar: ").strip()
+    idh = input("ID habitación a eliminar: ").strip()
     if idh not in habitaciones:
         print("No existe una habitación con ese ID.")
         return
     if not habitaciones[idh]["activo"]:
         print("La habitación ya está inactiva.")
         return
-    numero = habitaciones[idh]['numero']
-    confirm = input_opciones(f"¿Está seguro de inactivar la habitación {numero}? (s/n): ", ["s", "n"])
+    # Verificar reservas activas o futuras
+    tiene_reservas = False
+    for rid, datos in reservas.items():
+        if datos["idhabitacion"] == idh:
+            if not datos.get("finalizada", False):
+                tiene_reservas = True
+                break
+    if tiene_reservas:
+        print("No se puede dar de baja: la habitación tiene reservas activas o futuras.")
+        return
+    confirm = input("¿Confirma la baja lógica de la habitación? (s/n): ").strip().lower()
     if confirm == "s":
         habitaciones[idh]["activo"] = False
-        try:
-            with open(habitaciones_archivo, mode='w', encoding='utf-8') as f:
-                json.dump(habitaciones, f, ensure_ascii=False, indent=4)
-            print("Habitación inactivada.")
-        except (FileNotFoundError, OSError) as detalle:
-            print("Error al intentar guardar archivo(s):", detalle)
+        print("Habitación dada de baja lógicamente.")
     else:
         print("Operación cancelada.")
+    guardar_habitaciones(habitaciones)
 
 def listar_habitaciones_activas(habitaciones_archivo="habitaciones.json"):
     """Lista todas las habitaciones activas leyendo desde archivo JSON, con formato tabular alineado."""
@@ -753,45 +776,49 @@ def registrar_reserva(huespedes, habitaciones, reservas):
         h = input("ID huésped: ").strip()
         if h not in huespedes or not huespedes[h]["activo"]:
             print("Huésped inválido o inactivo. Ingrese un ID de huésped activo.")
-            continue
-        break
+        else:
+            break
     # Validar ID habitación activa
     while True:
         r = input("ID habitación: ").strip()
         if r not in habitaciones or not habitaciones[r]["activo"]:
             print("Habitación inválida o inactiva. Ingrese un ID de habitación activa.")
-            continue
-        break
-    # Validar fecha de entrada (exactamente 4 dígitos numéricos, día y mes válidos)
+        else:
+            break
+    # Validar fecha de entrada (no en el pasado)
     while True:
-        fe_str = input("Fecha entrada (DDMM): ").strip()
-        if not (fe_str.isdigit() and len(fe_str) == 4):
-            print("Fecha de entrada inválida. Debe estar en formato DDMM y ser numérica, exactamente 4 dígitos.")
-            continue
-        dia_entrada = int(fe_str[:2])
-        mes_entrada = int(fe_str[2:])
-        if dia_entrada < 1 or dia_entrada > 31:
-            print("Día de entrada inválido. Debe estar entre 01 y 31.")
-            continue
-        if mes_entrada < 1 or mes_entrada > 12:
-            print("Mes de entrada inválido. Debe estar entre 01 y 12.")
-            continue
-        break
-    # Validar fecha de salida (exactamente 4 dígitos numéricos, día y mes válidos)
+        fecha_entrada = input("Fecha de entrada (DDMM): ").strip()
+        if not (len(fecha_entrada) == 4 and fecha_entrada.isdigit()):
+            print("Formato inválido. Debe ser DDMM.")
+        else:
+            dia = int(fecha_entrada[:2])
+            mes = int(fecha_entrada[2:])
+            hoy = datetime.datetime.now()
+            anio = hoy.year
+            try:
+                fecha_ent = datetime.datetime(anio, mes, dia)
+                if fecha_ent < hoy.replace(hour=0, minute=0, second=0, microsecond=0):
+                    print("No se permiten reservas en el pasado.")
+                else:
+                    break
+            except Exception:
+                print("Fecha inválida.")
+    # Validar fecha de salida (igual formato, debe ser posterior a entrada)
     while True:
-        fs_str = input("Fecha salida (DDMM): ").strip()
-        if not (fs_str.isdigit() and len(fs_str) == 4):
-            print("Fecha de salida inválida. Debe estar en formato DDMM y ser numérica, exactamente 4 dígitos.")
-            continue
-        dia_salida = int(fs_str[:2])
-        mes_salida = int(fs_str[2:])
-        if dia_salida < 1 or dia_salida > 31:
-            print("Día de salida inválido. Debe estar entre 01 y 31.")
-            continue
-        if mes_salida < 1 or mes_salida > 12:
-            print("Mes de salida inválido. Debe estar entre 01 y 12.")
-            continue
-        break
+        fecha_salida = input("Fecha de salida (DDMM): ").strip()
+        if not (len(fecha_salida) == 4 and fecha_salida.isdigit()):
+            print("Formato inválido. Debe ser DDMM.")
+        else:
+            dia_s = int(fecha_salida[:2])
+            mes_s = int(fecha_salida[2:])
+            try:
+                fecha_sal = datetime.datetime(anio, mes_s, dia_s)
+                if fecha_sal <= fecha_ent:
+                    print("La fecha de salida debe ser posterior a la de entrada.")
+                else:
+                    break
+            except Exception:
+                print("Fecha inválida.")
 
     # Calcular fechas correctamente usando el año actual y manejando el cruce de año
     hoy = datetime.datetime.now()
@@ -830,15 +857,18 @@ def registrar_reserva(huespedes, habitaciones, reservas):
             print("El descuento debe estar entre 0 y 99.")
             continue
         break
+    # Limpiar espacios en campos de texto
+    # Si hay campos de texto como observaciones, motivo, etc., aplicar limpiar_espacios antes de guardar
     reservas[id_reserva] = {
         "idhuesped": h,
         "idhabitacion": r,
-        "fechaEntrada": fe_str,
-        "fechaSalida": fs_str,
+        "fechaEntrada": fecha_entrada,
+        "fechaSalida": fecha_salida,
         "cantidadNoches": noches,
         "descuento": descuento,
         "fechaHoraOperacion": datetime.datetime.now().strftime("%Y.%m.%d - %H:%M:%S")
     }
+    guardar_reservas(reservas)
     print(f"Reserva registrada con ID: {id_reserva}")
 
 def listar_reservas(reservas, huespedes, habitaciones):
@@ -977,7 +1007,7 @@ def menu_huespedes():
         elif sub == "2":
             modificar_huesped()
         elif sub == "3":
-            inactivar_huesped()
+            eliminar_huesped()
         elif sub == "4":
             listar_huespedes_activos()
         elif sub == "5":
@@ -995,7 +1025,7 @@ def menu_habitaciones():
         elif sub == "2":
             modificar_habitacion()
         elif sub == "3":
-            inactivar_habitacion()
+            eliminar_habitacion()
         elif sub == "4":
             listar_habitaciones_activas()
         elif sub == "5":
