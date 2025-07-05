@@ -25,16 +25,60 @@ import re
 import random
 import string
 import shutil
+import time
+import os
+
+#----------------------------------------------------------------------------------------------
+# CONSTANTES Y CONFIGURACIÓN
+#----------------------------------------------------------------------------------------------
+# Límites de validación
+MIN_LENGTH_ID = 2
+MAX_LENGTH_ID = 6  # Para IDs de huéspedes y habitaciones
+MAX_LENGTH_ID_RESERVA = 9  # Para IDs de reserva (formato RSVxxxnnn)
+MIN_LENGTH_NOMBRE = 2
+MAX_LENGTH_NOMBRE = 20
+MIN_LENGTH_DNI = 6
+MAX_LENGTH_DNI = 8
+MIN_LENGTH_TELEFONO = 7
+MAX_LENGTH_TELEFONO = 15
+MIN_LENGTH_DESCRIPCION = 5
+MAX_LENGTH_DESCRIPCION = 25
+MIN_LENGTH_SERVICIOS = 2
+MAX_LENGTH_SERVICIOS = 50
+MIN_LENGTH_NUMERO_HAB = 1
+MAX_LENGTH_NUMERO_HAB = 6
+MIN_LENGTH_PISO = 1
+MAX_LENGTH_PISO = 3
+MIN_LENGTH_PRECIO = 1
+MAX_LENGTH_PRECIO = 8
+
+# Formatos y rangos
+ANIO_MIN = 25
+ANIO_MAX = 27
+
+# Opciones válidas
+MEDIOS_DE_PAGO = ["Efectivo", "Tarjeta", "Transferencia", "Débito", "Crédito"]
+TIPOS_HABITACION = ["Simple", "Doble", "Triple", "Suite", "Familiar"]
+ESTADOS_HABITACION = ["Disponible", "Ocupada", "Mantenimiento"]
+SERVICIOS_POSIBLES = ["WiFi", "TV", "Aire", "Frigobar", "Limpieza", "Desayuno"]
+
+# Archivos
+ARCHIVO_HUESPEDES = "huespedes.json"
+ARCHIVO_HABITACIONES = "habitaciones.json"
+ARCHIVO_RESERVAS = "reservas.json"
 
 #----------------------------------------------------------------------------------------------
 # FUNCIONES
 #----------------------------------------------------------------------------------------------
 def generar_id_reserva(reservas):
-    """Genera un ID único tipo RSVxxxnnn para la reserva."""
+    """Genera un ID único tipo RSVxxxnnn para la reserva (exactamente 9 caracteres)."""
     while True:
         numeros = ''.join(random.choices(string.digits, k=3))
         letras = ''.join(random.choices(string.ascii_uppercase, k=3))
         rid = f"RSV{numeros}{letras}"
+        # Verificar que tenga exactamente 9 caracteres
+        if len(rid) != MAX_LENGTH_ID_RESERVA:
+            continue
         if rid not in reservas:
             return rid
 
@@ -50,15 +94,15 @@ def input_float(msg):
     """Solicita un número flotante por consola, validando la entrada."""
     while True:
         dato = input(msg).strip()
-        # Permite un signo negativo opcional y un punto decimal.
-        temp_dato = dato
-        if dato.startswith('-'):
-            temp_dato = dato[1:]
+        # Permite un punto decimal.
+        if dato.count('.') <= 1 and dato.replace('.', '', 1).isdigit():
+            valor = float(dato)
+            if valor < 0:
+                print("❌ No se permiten valores negativos.")
+                continue
+            return valor
         
-        if temp_dato.count('.') <= 1 and temp_dato.replace('.', '', 1).isdigit():
-            return float(dato)
-        
-        print("Ingrese un valor numérico.")
+        print("❌ Ingrese un valor numérico positivo.")
 
 def input_email(msg):
     """Solicita un email por consola, validando su formato básico."""
@@ -76,7 +120,7 @@ def input_opciones(msg, opciones):
         op = input(msg)
         if op in opciones:
             return op
-        print(f"Opción inválida. Opciones válidas: {', '.join(opciones)}")
+        print(f"❌ Opción inválida. Opciones válidas: {', '.join(opciones)}")
 
 def es_fecha_valida(dia, mes, anio):
     """Chequea si una fecha es válida (ej: que no sea 31 de abril)."""
@@ -96,34 +140,58 @@ def es_fecha_valida(dia, mes, anio):
 
 def validar_email_regex(email):
     """Valida el email usando una expresión regular estricta."""
+    if len(email) > 254:  # RFC 5321 limit
+        return False
     pat = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
     return re.match(pat, email) is not None
 
 def validar_dni(dni):
     """Valida que el DNI tenga entre 6 y 8 caracteres numéricos."""
     if isinstance(dni, int):
+        if dni < 0:
+            return False
         dni = str(dni)
-    return dni.isdigit() and 6 <= len(dni) <= 8
-
-def validar_telefono(telefono):
-    # Permitir + solo al inicio, y solo si hay más de 7 dígitos después
-    if telefono.startswith('+'):
-        resto = telefono[1:]
-        if not (resto.isdigit() and 7 <= len(resto) <= 15):
+    elif isinstance(dni, str):
+        if dni.startswith('-'):
             return False
     else:
-        if not (telefono.isdigit() and 7 <= len(telefono) <= 15):
+        return False
+    
+    return dni.isdigit() and MIN_LENGTH_DNI <= len(dni) <= MAX_LENGTH_DNI
+
+def validar_telefono(telefono):
+    """Valida que el teléfono tenga el formato correcto."""
+    telefono_str = str(telefono)
+    # Permitir + solo al inicio, y solo si hay más de 7 dígitos después
+    if telefono_str.startswith('+'):
+        resto = telefono_str[1:]
+        if not (resto.isdigit() and MIN_LENGTH_TELEFONO <= len(resto) <= MAX_LENGTH_TELEFONO):
+            return False
+        if len(resto) > 20:  # Máximo 20 dígitos después del +
+            return False
+    else:
+        if not (telefono_str.isdigit() and MIN_LENGTH_TELEFONO <= len(telefono_str) <= MAX_LENGTH_TELEFONO):
+            return False
+        if len(telefono_str) > 20:  # Máximo 20 dígitos
             return False
     return True
 
 def validar_id_huesped(idh):
     """Valida que el ID del huésped tenga entre 2 y 6 caracteres."""
-    return 2 <= len(idh) <= 6
+    if not (MIN_LENGTH_ID <= len(idh) <= MAX_LENGTH_ID):
+        return False
+    # Verificar que solo contenga letras y números
+    if not idh.isalnum():
+        return False
+    # Verificar que no sea solo números
+    if idh.isdigit():
+        return False
+    return True
 
 def validar_nombre_apellido(texto):
     """Valida que el nombre o apellido tenga entre 2 y 20 caracteres y solo contenga letras y espacios."""
     texto_limpio = texto.strip()
-    if not (2 <= len(texto_limpio) <= 20):
+    if not (MIN_LENGTH_NOMBRE <= len(texto_limpio) <= MAX_LENGTH_NOMBRE):
         return False
     # Verificar que solo contenga letras y espacios
     for caracter in texto_limpio:
@@ -132,7 +200,37 @@ def validar_nombre_apellido(texto):
     # Verificar que no sea solo espacios
     if texto_limpio.replace(" ", "") == "":
         return False
+    # Verificar que no tenga espacios múltiples consecutivos
+    if "  " in texto_limpio:
+        return False
+    # Verificar que no empiece o termine con espacio
+    if texto_limpio.startswith(" ") or texto_limpio.endswith(" "):
+        return False
     return True
+
+def validar_unicidad_email_telefono(huespedes, email, telefono, id_excluir=None):
+    """Valida que el email y teléfono sean únicos entre huéspedes activos."""
+    for idh, datos in huespedes.items():
+        if idh == id_excluir:
+            continue
+        if datos["activo"]:
+            if datos["email"] == email:
+                return False, f"Email '{email}' ya existe en huésped {idh}"
+            if str(datos["telefono"]) == str(telefono):
+                return False, f"Teléfono '{telefono}' ya existe en huésped {idh}"
+    return True, ""
+
+def es_medio_pago_valido(medio):
+    """Valida que el medio de pago sea válido."""
+    return medio in MEDIOS_DE_PAGO
+
+def es_tipo_habitacion_valido(tipo):
+    """Valida que el tipo de habitación sea válido."""
+    return tipo in TIPOS_HABITACION
+
+def es_estado_habitacion_valido(estado):
+    """Valida que el estado de habitación sea válido."""
+    return estado in ESTADOS_HABITACION
 
 def input_id_huesped(msg):
     """Solicita un ID de huésped válido por consola, validando la entrada."""
@@ -151,27 +249,38 @@ def input_nombre_apellido(msg):
         print("Nombre/Apellido inválido. Debe tener entre 2 y 20 caracteres y solo contener letras.")
 
 def input_dni(msg):
-    """Solicita un DNI válido por consola, validando la entrada."""
+    """Solicita un DNI por consola, validando la entrada."""
     while True:
         dni = input(msg).strip()
-        if validar_dni(dni):
-            dni_int = int(dni)
-            if dni_int < 0:
-                print("DNI inválido. No puede ser negativo.")
-                continue
-            return dni_int
-        print("DNI inválido. Debe tener entre 6 y 8 dígitos numéricos.")
+        if not dni.isdigit():
+            print("❌ DNI inválido. Debe contener solo dígitos numéricos.")
+            continue
+        dni = int(dni)
+        if dni < 0:
+            print("❌ DNI inválido. No puede ser negativo.")
+            continue
+        if dni > 99999999:
+            print("❌ DNI inválido. No puede exceder 99999999.")
+            continue
+        if not validar_dni(dni):
+            print("❌ DNI inválido. Debe tener entre 6 y 8 dígitos numéricos.")
+            continue
+        return dni
 
 def input_telefono(msg):
     """Solicita un teléfono válido por consola, validando la entrada."""
     while True:
         telefono = input(msg).strip()
         if validar_telefono(telefono):
-            telefono_int = int(telefono)
-            if telefono_int < 0:
-                print("Teléfono inválido. No puede ser negativo.")
-                continue
-            return telefono_int
+            # Si tiene +, mantener como string, sino convertir a int
+            if telefono.startswith('+'):
+                return telefono
+            else:
+                telefono_int = int(telefono)
+                if telefono_int < 0:
+                    print("Teléfono inválido. No puede ser negativo.")
+                    continue
+                return telefono_int
         print("Teléfono inválido. Debe tener entre 7 y 15 dígitos numéricos.")
 
 def input_email_validado(msg):
@@ -180,15 +289,14 @@ def input_email_validado(msg):
         email = input(msg).strip()
         if validar_email_regex(email):
             return email
-        print("Email inválido. Debe contener @ y tener un formato válido.")
+        print("❌ Email inválido. Debe contener @ y tener un formato válido.")
 
 def input_medio_pago(msg):
     """Solicita un medio de pago válido de las opciones disponibles."""
-    opciones_validas = ["Efectivo", "Tarjeta", "Transferencia", "Débito", "Crédito"]
     while True:
         medio = input(msg).strip()
         # Normalizar el input: convertir a minúsculas y remover acentos
-        medio_normalizado = medio.lower()
+        medio_normalizado = normalizar_texto(medio)
         # Mapeo de variaciones comunes sin acentos
         mapeo_variaciones = {
             "efectivo": "Efectivo",
@@ -200,12 +308,12 @@ def input_medio_pago(msg):
             "crédito": "Crédito"
         }
         
-        if medio in opciones_validas:
+        if medio in MEDIOS_DE_PAGO:
             return medio
         elif medio_normalizado in mapeo_variaciones:
             return mapeo_variaciones[medio_normalizado]
         else:
-            print(f"Medio de pago inválido. Opciones válidas: {', '.join(opciones_validas)}")
+            print(f"Medio de pago inválido. Opciones válidas: {', '.join(MEDIOS_DE_PAGO)}")
 
 def normalizar_texto(texto):
     """Normaliza texto removiendo acentos y convirtiendo a minúsculas."""
@@ -226,14 +334,54 @@ def limpiar_espacios(texto):
 def guardar_json_backup(ruta):
     """Hace un backup automático del archivo JSON antes de sobrescribirlo."""
     try:
-        shutil.copy(ruta, ruta + ".bak")
-    except Exception:
-        pass
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{ruta}.{timestamp}.bak"
+        shutil.copy(ruta, backup_name)
+        print(f"📋 Backup creado: {backup_name}")
+    except Exception as e:
+        print(f"⚠️  No se pudo crear backup de {ruta}: {e}")
 
-def guardar_reservas(reservas, archivo="reservas.json"):
+def guardar_reservas(reservas, archivo=ARCHIVO_RESERVAS):
     guardar_json_backup(archivo)
     with open(archivo, mode='w', encoding='utf-8') as f:
         json.dump(reservas, f, ensure_ascii=False, indent=4)
+
+def exportar_informe_a_archivo(contenido, nombre_archivo):
+    """Exporta un informe a un archivo de texto."""
+    try:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        nombre_completo = f"{nombre_archivo}_{timestamp}.txt"
+        with open(nombre_completo, 'w', encoding='utf-8') as f:
+            f.write(contenido)
+        print(f"✅ Informe exportado a: {nombre_completo}")
+        return True
+    except Exception as e:
+        print(f"❌ Error al exportar informe: {e}")
+        return False
+
+def restaurar_desde_backup(archivo):
+    """Intenta restaurar un archivo desde su backup más reciente."""
+    try:
+        # Buscar backups del archivo
+        backups = []
+        for f in os.listdir('.'):
+            if f.startswith(archivo + '.') and f.endswith('.bak'):
+                backups.append(f)
+        
+        if not backups:
+            return False
+        
+        # Ordenar por timestamp (más reciente primero)
+        backups.sort(reverse=True)
+        backup_mas_reciente = backups[0]
+        
+        print(f"🔄 Restaurando desde backup: {backup_mas_reciente}")
+        shutil.copy(backup_mas_reciente, archivo)
+        print(f"✅ Archivo {archivo} restaurado exitosamente")
+        return True
+    except Exception as e:
+        print(f"❌ Error al restaurar desde backup: {e}")
+        return False
 
 #----------------------------------------------------------------------------------------------
 # CRUD HUESPEDES
@@ -243,7 +391,7 @@ def guardar_huespedes(huespedes, archivo="huespedes.json"):
     with open(archivo, mode='w', encoding='utf-8') as f:
         json.dump(huespedes, f, ensure_ascii=False, indent=4)
 
-def alta_huesped(huespedes_archivo="huespedes.json"):
+def alta_huesped(huespedes_archivo=ARCHIVO_HUESPEDES):
     """Da de alta un huésped nuevo, persistiendo en archivo JSON."""
     print("\n--- Alta de huésped ---")
     try:
@@ -252,139 +400,260 @@ def alta_huesped(huespedes_archivo="huespedes.json"):
     except FileNotFoundError:
         huespedes = {}
     except OSError as detalle:
-        print("Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
+        print("❌ Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
         return
+    
     idh = input_id_huesped("ID del huésped: ")
-    if idh in huespedes:
-        print("Ya existe ese ID.")
+    if not validar_id_huesped(idh):
+        print(f"❌ ID inválido. Debe tener entre {MIN_LENGTH_ID} y {MAX_LENGTH_ID} caracteres, solo letras y números, y no puede ser solo números.")
         return
+    if not validar_id_unico_huesped(huespedes, idh):
+        print("❌ Ya existe un huésped con ese ID.")
+        return
+    
     nombre = input_nombre_apellido("Nombre: ")
     apellido = input_nombre_apellido("Apellido: ")
-    documento = input_dni("DNI: ")
+    dni = input_dni("DNI: ")
+    if not validar_dni_unico(huespedes, dni):
+        print("❌ Ya existe un huésped con ese DNI.")
+        return
     email = input_email_validado("Email: ")
     telefono = input_telefono("Teléfono: ")
-    medio_pago = input_medio_pago("Medio de pago: ")
+    
+    # Solicitar medios de pago (pueden ser múltiples)
+    while True:
+        medios_input = input("Medios de pago (separados por coma): ").strip()
+        medios_lista = [m.strip() for m in medios_input.split(',') if m.strip()]
+        if len(medios_input) < 2 or len(medios_input) > 50:
+            print("❌ Medios de pago inválidos. Debe tener entre 2 y 50 caracteres.")
+        elif len(medios_lista) == 0 or '' in medios_lista:
+            print("❌ Debe ingresar al menos un medio de pago válido, separados por coma y sin espacios vacíos.")
+        elif len(medios_lista) != len(set(medios_lista)):
+            print("❌ No puede haber medios de pago duplicados.")
+        else:
+            # Validar que todos los medios sean válidos usando la función normalizada
+            medios_validos = []
+            for medio in medios_lista:
+                # Normalizar el medio de pago
+                medio_normalizado = normalizar_texto(medio)
+                # Mapeo de variaciones comunes sin acentos
+                mapeo_variaciones = {
+                    "efectivo": "Efectivo",
+                    "tarjeta": "Tarjeta", 
+                    "transferencia": "Transferencia",
+                    "debito": "Débito",
+                    "débito": "Débito",
+                    "credito": "Crédito",
+                    "crédito": "Crédito"
+                }
+                
+                if medio in MEDIOS_DE_PAGO:
+                    medios_validos.append(medio)
+                elif medio_normalizado in mapeo_variaciones:
+                    medios_validos.append(mapeo_variaciones[medio_normalizado])
+                else:
+                    print(f"❌ Medio de pago '{medio}' no válido. Opciones: {', '.join(MEDIOS_DE_PAGO)}")
+                    break
+            else:
+                medios = medios_validos
+                break
+    
+    # Validar unicidad de email y teléfono
+    valido, error = validar_unicidad_email_telefono(huespedes, email, telefono)
+    if not valido:
+        print(f"❌ {error}")
+        return
+    
     nombre = limpiar_espacios(nombre)
     apellido = limpiar_espacios(apellido)
     email = limpiar_espacios(email)
+    
     huespedes[idh] = {
         "activo": True,
         "nombre": nombre,
         "apellido": apellido,
-        "documento": documento,
+        "documento": dni,
         "email": email,
         "telefono": telefono,
-        "mediosDePago": [medio_pago]
+        "mediosDePago": medios
     }
+    
     guardar_huespedes(huespedes)
-    print(f"Huésped {nombre} {apellido} agregado correctamente.")
+    print(f"✅ Huésped {nombre} {apellido} agregado correctamente.")
 
-def modificar_huesped(huespedes_archivo="huespedes.json"):
+def modificar_huesped(huespedes_archivo=ARCHIVO_HUESPEDES):
     """Permite modificar todos los datos de un huésped activo, persistiendo en archivo JSON."""
     print("\n--- Modificar huésped ---")
     try:
         with open(huespedes_archivo, mode='r', encoding='utf-8') as f:
             huespedes = json.load(f)
     except FileNotFoundError:
-        print("El archivo de huéspedes no existe. No hay datos para modificar.")
+        print("❌ El archivo de huéspedes no existe. No hay datos para modificar.")
         return
     except OSError as detalle:
-        print("Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
+        print("❌ Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
         return
+    
     idh = input_id_huesped("ID del huésped a modificar: ")
     if idh in huespedes and huespedes[idh]["activo"]:
-        print("Deje vacío para no modificar ese campo.")
+        print("💡 Deje vacío para no modificar ese campo.")
+        
+        # Mostrar datos actuales
+        print(f"\n📋 Datos actuales del huésped {idh}:")
+        print(f"   Nombre: {huespedes[idh]['nombre']}")
+        print(f"   Apellido: {huespedes[idh]['apellido']}")
+        print(f"   DNI: {huespedes[idh]['documento']}")
+        print(f"   Email: {huespedes[idh]['email']}")
+        print(f"   Teléfono: {huespedes[idh]['telefono']}")
+        print(f"   Medio de pago: {', '.join(huespedes[idh]['mediosDePago'])}")
+        print()
+        
         for campo in ["nombre", "apellido", "documento", "email", "telefono"]:
             actual = huespedes[idh][campo]
             while True:
                 nuevo = input(f"Nuevo {campo} (actual: {actual}): ").strip()
                 if not nuevo:  # Si está vacío, no modificar
                     break
-                if campo in ["nombre", "apellido", "email"]:
+                if campo in ["nombre", "apellido"]:
                     if validar_nombre_apellido(nuevo):
                         huespedes[idh][campo] = limpiar_espacios(nuevo)
                         break
                     else:
-                        print("Nombre/Apellido inválido. Debe tener entre 2 y 20 caracteres y solo contener letras.")
+                        print("❌ Nombre/Apellido inválido. Debe tener entre 2 y 20 caracteres y solo contener letras.")
+                elif campo == "email":
+                    if validar_email_regex(nuevo):
+                        huespedes[idh][campo] = limpiar_espacios(nuevo)
+                        break
+                    else:
+                        print("❌ Email inválido. Debe contener @ y tener un formato válido.")
                 elif campo == "documento":
                     if validar_dni(nuevo):
                         nuevo = int(nuevo)
                         if nuevo < 0:
-                            print("DNI inválido. No puede ser negativo.")
+                            print("❌ DNI inválido. No puede ser negativo.")
                             continue
                         huespedes[idh][campo] = nuevo
                         break
                     else:
-                        print("DNI inválido. Debe tener entre 6 y 8 dígitos numéricos.")
+                        print("❌ DNI inválido. Debe tener entre 6 y 8 dígitos numéricos.")
                 elif campo == "telefono":
                     if validar_telefono(nuevo):
-                        nuevo = int(nuevo)
-                        if nuevo < 0:
-                            print("Teléfono inválido. No puede ser negativo.")
-                            continue
-                        huespedes[idh][campo] = nuevo
+                        # Si tiene +, mantener como string, sino convertir a int
+                        if nuevo.startswith('+'):
+                            huespedes[idh][campo] = nuevo
+                        else:
+                            nuevo_int = int(nuevo)
+                            if nuevo_int < 0:
+                                print("❌ Teléfono inválido. No puede ser negativo.")
+                                continue
+                            huespedes[idh][campo] = nuevo_int
                         break
                     else:
-                        print("Teléfono inválido. Debe tener entre 7 y 15 dígitos numéricos.")
+                        print("❌ Teléfono inválido. Debe tener entre 7 y 15 dígitos numéricos.")
+        
+        # Validar unicidad de email y teléfono después de las modificaciones
+        valido, error = validar_unicidad_email_telefono(huespedes, huespedes[idh]["email"], huespedes[idh]["telefono"], idh)
+        if not valido:
+            print(f"❌ {error}")
+            return
+        
         mp_actual = ', '.join(huespedes[idh]["mediosDePago"])
         while True:
-            nuevo_mp = input(f"Nuevo medio de pago (actual: {mp_actual}): ").strip()
-            if not nuevo_mp:  # Si está vacío, no modificar
+            nuevo_mp_input = input(f"Nuevo medio de pago (actual: {mp_actual}, separados por coma): ").strip()
+            if not nuevo_mp_input:  # Si está vacío, no modificar
                 break
-            opciones_validas = ["Efectivo", "Tarjeta", "Transferencia", "Débito", "Crédito"]
-            # Normalizar el input: convertir a minúsculas y remover acentos
-            nuevo_mp_normalizado = nuevo_mp.lower()
-            # Mapeo de variaciones comunes sin acentos
-            mapeo_variaciones = {
-                "efectivo": "Efectivo",
-                "tarjeta": "Tarjeta", 
-                "transferencia": "Transferencia",
-                "debito": "Débito",
-                "débito": "Débito",
-                "credito": "Crédito",
-                "crédito": "Crédito"
-            }
-            
-            if nuevo_mp in opciones_validas:
-                huespedes[idh]["mediosDePago"] = [nuevo_mp]
-                break
-            elif nuevo_mp_normalizado in mapeo_variaciones:
-                huespedes[idh]["mediosDePago"] = [mapeo_variaciones[nuevo_mp_normalizado]]
-                break
+            # Procesar múltiples medios de pago separados por coma
+            medios_lista = [m.strip() for m in nuevo_mp_input.split(',') if m.strip()]
+            if len(nuevo_mp_input) < 2 or len(nuevo_mp_input) > 50:
+                print("❌ Medios de pago inválidos. Debe tener entre 2 y 50 caracteres.")
+            elif len(medios_lista) == 0 or '' in medios_lista:
+                print("❌ Debe ingresar al menos un medio de pago válido, separados por coma y sin espacios vacíos.")
+            elif len(medios_lista) != len(set(medios_lista)):
+                print("❌ No puede haber medios de pago duplicados.")
             else:
-                print(f"Medio de pago inválido. Opciones válidas: {', '.join(opciones_validas)}.")
+                # Validar que todos los medios sean válidos usando la función normalizada
+                medios_validos = []
+                for medio in medios_lista:
+                    # Normalizar el medio de pago
+                    medio_normalizado = normalizar_texto(medio)
+                    # Mapeo de variaciones comunes sin acentos
+                    mapeo_variaciones = {
+                        "efectivo": "Efectivo",
+                        "tarjeta": "Tarjeta", 
+                        "transferencia": "Transferencia",
+                        "debito": "Débito",
+                        "débito": "Débito",
+                        "credito": "Crédito",
+                        "crédito": "Crédito"
+                    }
+                    
+                    if medio in MEDIOS_DE_PAGO:
+                        medios_validos.append(medio)
+                    elif medio_normalizado in mapeo_variaciones:
+                        medios_validos.append(mapeo_variaciones[medio_normalizado])
+                    else:
+                        print(f"❌ Medio de pago '{medio}' no válido. Opciones: {', '.join(MEDIOS_DE_PAGO)}")
+                        break
+                else:
+                    huespedes[idh]["mediosDePago"] = medios_validos
+                    break
+        
         guardar_huespedes(huespedes)
-        print("Huésped modificado correctamente.")
+        print("✅ Huésped modificado correctamente.")
     else:
-        print("No existe o está inactivo.")
+        print("❌ No existe un huésped activo con ese ID.")
 
-def eliminar_huesped(huespedes, reservas):
+def eliminar_huesped():
     """Realiza la baja lógica de un huésped solo si no tiene reservas activas o futuras."""
     print("\n--- Eliminar (baja lógica) huésped ---")
+    
+    # Cargar datos actualizados desde archivos JSON
+    try:
+        with open(ARCHIVO_HUESPEDES, 'r', encoding='utf-8') as f:
+            huespedes = json.load(f)
+        with open(ARCHIVO_RESERVAS, 'r', encoding='utf-8') as f:
+            reservas = json.load(f)
+    except (FileNotFoundError, OSError) as detalle:
+        print("❌ Error al intentar abrir archivo(s):", detalle)
+        return
+    
     idh = input("ID huésped a eliminar: ").strip()
     if idh not in huespedes:
-        print("No existe un huésped con ese ID.")
+        print("❌ No existe un huésped con ese ID.")
         return
     if not huespedes[idh]["activo"]:
-        print("El huésped ya está inactivo.")
+        print("❌ El huésped ya está inactivo.")
         return
+    
+    # Mostrar datos del huésped antes de eliminar
+    print(f"\n📋 Datos del huésped a eliminar:")
+    print(f"   ID: {idh}")
+    print(f"   Nombre: {huespedes[idh]['nombre']} {huespedes[idh]['apellido']}")
+    print(f"   DNI: {huespedes[idh]['documento']}")
+    print(f"   Email: {huespedes[idh]['email']}")
+    print(f"   Teléfono: {huespedes[idh]['telefono']}")
+    
     # Verificar reservas activas o futuras
-    tiene_reservas = False
+    reservas_activas = []
     for rid, datos in reservas.items():
         if datos["idhuesped"] == idh:
             # Si la reserva es futura o activa (no finalizada)
             if not datos.get("finalizada", False):
-                tiene_reservas = True
-                break
-    if tiene_reservas:
-        print("No se puede dar de baja: el huésped tiene reservas activas o futuras.")
+                reservas_activas.append(rid)
+    
+    if reservas_activas:
+        print(f"\n❌ No se puede dar de baja: el huésped tiene {len(reservas_activas)} reservas activas o futuras:")
+        for rid in reservas_activas:
+            print(f"   - Reserva {rid}: {datos['fechaEntrada']} a {datos['fechaSalida']}")
         return
-    confirm = input("¿Confirma la baja lógica del huésped? (s/n): ").strip().lower()
+    
+    confirm = input("\n⚠️  ¿Confirma la baja lógica del huésped? (s/n): ").strip().lower()
     if confirm == "s":
         huespedes[idh]["activo"] = False
-        print("Huésped dado de baja lógicamente.")
+        print("✅ Huésped dado de baja lógicamente.")
     else:
-        print("Operación cancelada.")
+        print("❌ Operación cancelada.")
+    
     guardar_huespedes(huespedes)
 
 def listar_huespedes_activos(huespedes_archivo="huespedes.json"):
@@ -452,7 +721,7 @@ def guardar_habitaciones(habitaciones, archivo="habitaciones.json"):
     with open(archivo, mode='w', encoding='utf-8') as f:
         json.dump(habitaciones, f, ensure_ascii=False, indent=4)
 
-def alta_habitacion(habitaciones_archivo="habitaciones.json"):
+def alta_habitacion(habitaciones_archivo=ARCHIVO_HABITACIONES):
     """Da de alta una habitación nueva, persistiendo en archivo JSON."""
     print("\n--- Alta de habitación ---")
     try:
@@ -461,97 +730,132 @@ def alta_habitacion(habitaciones_archivo="habitaciones.json"):
     except FileNotFoundError:
         habitaciones = {}
     except OSError as detalle:
-        print("Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
+        print("❌ Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
         return
+    
     # ID habitación
     while True:
         idh = input("ID habitación: ").strip()
-        if not (2 <= len(idh) <= 6 and idh.isalnum()):
-            print("ID inválido. Debe tener entre 2 y 6 caracteres, solo letras y números.")
+        if not validar_id_habitacion(idh):
+            print(f"❌ ID inválido. Debe tener entre {MIN_LENGTH_ID} y {MAX_LENGTH_ID} caracteres, solo letras y números, y no puede ser solo números.")
             continue
-        if idh in habitaciones:
-            print("ID ya existe.")
+        if not validar_id_unico_habitacion(habitaciones, idh):
+            print("❌ ID ya existe.")
             continue
         break
     # Número habitación
     while True:
         numero = input("Número de habitación: ").strip()
-        if not (numero.isdigit() and 1 <= len(numero) <= 6):
-            print("Número inválido. Debe tener entre 1 y 6 dígitos numéricos.")
+        if not (numero.isdigit() and MIN_LENGTH_NUMERO_HAB <= len(numero) <= MAX_LENGTH_NUMERO_HAB):
+            print(f"❌ Número inválido. Debe tener entre {MIN_LENGTH_NUMERO_HAB} y {MAX_LENGTH_NUMERO_HAB} dígitos numéricos.")
             continue
         numero = int(numero)
         if numero < 0:
-            print("Número de habitación inválido. No puede ser negativo.")
+            print("❌ Número de habitación inválido. No puede ser negativo.")
+            continue
+        if numero > 9999:
+            print("❌ Número de habitación inválido. No puede exceder 9999.")
+            continue
+        if not validar_numero_habitacion_unico(habitaciones, numero):
+            print("❌ Ya existe una habitación con ese número.")
             continue
         break
+    
     # Tipo habitación
-    tipos_validos = ["Simple", "Doble", "Triple", "Suite", "Familiar"]
-    tipos_normalizados = [normalizar_texto(t) for t in tipos_validos]
+    tipos_normalizados = [normalizar_texto(t) for t in TIPOS_HABITACION]
     while True:
-        tipo = input(f"Tipo ({', '.join(tipos_validos)}): ").strip()
+        tipo = input(f"Tipo ({', '.join(TIPOS_HABITACION)}): ").strip()
         tipo_norm = normalizar_texto(tipo)
         if tipo_norm not in tipos_normalizados:
-            print(f"Tipo inválido. Opciones válidas: {', '.join(tipos_validos)}.")
+            print(f"❌ Tipo inválido. Opciones válidas: {', '.join(TIPOS_HABITACION)}.")
             continue
-        tipo = tipos_validos[tipos_normalizados.index(tipo_norm)]
+        tipo = TIPOS_HABITACION[tipos_normalizados.index(tipo_norm)]
         break
-    # Descripción
+        # Descripción
     while True:
         descripcion = input("Descripción: ").strip()
-        if not (5 <= len(descripcion) <= 25):
-            print("Descripción inválida. Debe tener entre 5 y 25 caracteres.")
+        if not (MIN_LENGTH_DESCRIPCION <= len(descripcion) <= MAX_LENGTH_DESCRIPCION):
+            print(f"❌ Descripción inválida. Debe tener entre {MIN_LENGTH_DESCRIPCION} y {MAX_LENGTH_DESCRIPCION} caracteres.")
             continue
         if not re.fullmatch(r'[a-zA-Z0-9,. ]+', descripcion):
-            print("Descripción inválida. Solo puede contener letras, números, comas, puntos y espacios.")
+            print("❌ Descripción inválida. Solo puede contener letras, números, comas, puntos y espacios.")
+            continue
+        # Verificar que no tenga espacios múltiples consecutivos
+        if "  " in descripcion:
+            print("❌ Descripción inválida. No puede tener espacios múltiples consecutivos.")
+            continue
+        # Verificar que no empiece o termine con espacio
+        if descripcion.startswith(" ") or descripcion.endswith(" "):
+            print("❌ Descripción inválida. No puede empezar o terminar con espacio.")
             continue
         break
     descripcion = limpiar_espacios(descripcion)
+    
     # Precio por noche
     while True:
         precio = input("Precio por noche: ").strip()
-        if not (precio.replace('.', '', 1).isdigit() and 1 <= len(precio) <= 8):
-            print("Precio inválido. Debe ser numérico, entre 1 y 8 caracteres.")
+        if not (precio.replace('.', '', 1).isdigit() and MIN_LENGTH_PRECIO <= len(precio) <= MAX_LENGTH_PRECIO):
+            print(f"❌ Precio inválido. Debe ser numérico, entre {MIN_LENGTH_PRECIO} y {MAX_LENGTH_PRECIO} caracteres.")
             continue
         precio = float(precio)
         if precio < 0:
-            print("Precio inválido. No puede ser negativo.")
+            print("❌ Precio inválido. No puede ser negativo.")
+            continue
+        if precio > 10000:
+            print("❌ Precio inválido. No puede exceder $10,000 por noche.")
             continue
         break
+    
     # Piso
     while True:
         piso = input("Piso: ").strip()
-        if not (piso.isdigit() and 1 <= len(piso) <= 3):
-            print("Piso inválido. Debe ser numérico, entre 1 y 3 caracteres.")
+        if not (piso.isdigit() and MIN_LENGTH_PISO <= len(piso) <= MAX_LENGTH_PISO):
+            print(f"❌ Piso inválido. Debe ser numérico, entre {MIN_LENGTH_PISO} y {MAX_LENGTH_PISO} caracteres.")
             continue
         piso = int(piso)
         if piso < 0:
-            print("Piso inválido. No puede ser negativo.")
+            print("❌ Piso inválido. No puede ser negativo.")
+            continue
+        if piso > 100:
+            print("❌ Piso inválido. No puede exceder 100.")
             continue
         break
+    
     # Estado
-    estados_validos = ["Disponible", "Ocupada", "Mantenimiento"]
-    estados_normalizados = [normalizar_texto(e) for e in estados_validos]
+    estados_normalizados = [normalizar_texto(e) for e in ESTADOS_HABITACION]
     while True:
-        estado = input(f"Estado ({', '.join(estados_validos)}): ").strip()
+        estado = input(f"Estado ({', '.join(ESTADOS_HABITACION)}): ").strip()
         estado_norm = normalizar_texto(estado)
         if estado_norm not in estados_normalizados:
-            print(f"Estado inválido. Opciones válidas: {', '.join(estados_validos)}.")
+            print(f"❌ Estado inválido. Opciones válidas: {', '.join(ESTADOS_HABITACION)}.")
             continue
-        estado = estados_validos[estados_normalizados.index(estado_norm)]
+        estado = ESTADOS_HABITACION[estados_normalizados.index(estado_norm)]
         break
     estado = limpiar_espacios(estado)
-    # Servicios incluidos
+        # Servicios incluidos
     while True:
         servicios = input("Servicios incluidos (separados por coma): ").strip()
         serviciosIncluidos = limpiar_espacios(servicios)
         servicios_lista = [s.strip() for s in serviciosIncluidos.split(',') if s.strip()]
-        if len(serviciosIncluidos) < 2 or len(serviciosIncluidos) > 50:
-            print("Servicios inválidos. Debe tener entre 2 y 50 caracteres.")
+        if len(serviciosIncluidos) < MIN_LENGTH_SERVICIOS or len(serviciosIncluidos) > MAX_LENGTH_SERVICIOS:
+            print(f"❌ Servicios inválidos. Debe tener entre {MIN_LENGTH_SERVICIOS} y {MAX_LENGTH_SERVICIOS} caracteres.")
         elif len(servicios_lista) == 0 or '' in servicios_lista:
-            print("Debe ingresar al menos un servicio válido, separados por coma y sin espacios vacíos.")
+            print("❌ Debe ingresar al menos un servicio válido, separados por coma y sin espacios vacíos.")
+        elif len(servicios_lista) != len(set(servicios_lista)):
+            print("❌ No puede haber servicios duplicados.")
         else:
-            serviciosIncluidos = ', '.join(servicios_lista)
-            break
+            # Verificar que cada servicio no contenga caracteres problemáticos
+            for servicio in servicios_lista:
+                if not re.fullmatch(r'[a-zA-Z0-9,. ]+', servicio):
+                    print(f"❌ Servicio '{servicio}' inválido. Solo puede contener letras, números, comas, puntos y espacios.")
+                    break
+                if "  " in servicio or servicio.startswith(" ") or servicio.endswith(" "):
+                    print(f"❌ Servicio '{servicio}' inválido. No puede tener espacios múltiples o empezar/terminar con espacio.")
+                    break
+            else:
+                serviciosIncluidos = ', '.join(servicios_lista)
+                break
+    
     habitaciones[idh] = {
         "activo": True,
         "numero": numero,
@@ -562,8 +866,9 @@ def alta_habitacion(habitaciones_archivo="habitaciones.json"):
         "estado": estado,
         "serviciosIncluidos": serviciosIncluidos
     }
+    
     guardar_habitaciones(habitaciones)
-    print(f"Habitación {numero} agregada correctamente.")
+    print(f"✅ Habitación {numero} agregada correctamente.")
 
 def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
     """Permite modificar todos los datos de una habitación activa, persistiendo en archivo JSON."""
@@ -653,9 +958,20 @@ def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
     else:
         print("No existe o está inactiva.")
 
-def eliminar_habitacion(habitaciones, reservas):
+def eliminar_habitacion():
     """Realiza la baja lógica de una habitación solo si no tiene reservas activas o futuras."""
     print("\n--- Eliminar (baja lógica) habitación ---")
+    
+    # Cargar datos actualizados desde archivos JSON
+    try:
+        with open("habitaciones.json", 'r', encoding='utf-8') as f:
+            habitaciones = json.load(f)
+        with open("reservas.json", 'r', encoding='utf-8') as f:
+            reservas = json.load(f)
+    except (FileNotFoundError, OSError) as detalle:
+        print("Error al intentar abrir archivo(s):", detalle)
+        return
+    
     idh = input("ID habitación a eliminar: ").strip()
     if idh not in habitaciones:
         print("No existe una habitación con ese ID.")
@@ -741,26 +1057,23 @@ def solapa_reserva(reservas, id_hab, fecha_inicio_nueva, fecha_fin_nueva):
     """
     for datos in reservas.values():
         if datos["idhabitacion"] == id_hab:
-            # Reconstruir fechas de la reserva existente a partir del formato 'DDMM'
             fe_existente_str = datos["fechaEntrada"]
             fs_existente_str = datos["fechaSalida"]
-            
-            # Obtener el año de la fecha de operación para contextualizar la fecha de la reserva
-            anio_op_str = datos["fechaHoraOperacion"][:4]
-            if not anio_op_str.isdigit():
-                pass  # Omitir si el dato es inválido
-            else:
-                anio_op = int(anio_op_str)
-                dia_e, mes_e = int(fe_existente_str[:2]), int(fe_existente_str[2:])
-                dia_s, mes_s = int(fs_existente_str[:2]), int(fs_existente_str[2:])
-                anio_e = anio_op
-                anio_s = anio_op
-                if mes_s < mes_e:
-                    anio_s = anio_op + 1
-                inicio_existente = datetime.datetime(anio_e, mes_e, dia_e)
-                fin_existente = datetime.datetime(anio_s, mes_s, dia_s)
-                if fecha_inicio_nueva < fin_existente and fecha_fin_nueva > inicio_existente:
-                    return True
+            if len(fe_existente_str) == 6 and len(fs_existente_str) == 6:
+                try:
+                    dia_e, mes_e, anio_e = int(fe_existente_str[:2]), int(fe_existente_str[2:4]), int(fe_existente_str[4:6])
+                    dia_s, mes_s, anio_s = int(fs_existente_str[:2]), int(fs_existente_str[2:4]), int(fs_existente_str[4:6])
+                    
+                    # Validar que las fechas existan realmente
+                    if not es_fecha_valida(dia_e, mes_e, 2000 + anio_e) or not es_fecha_valida(dia_s, mes_s, 2000 + anio_s):
+                        continue  # Saltar reservas con fechas inválidas
+                    
+                    inicio_existente = datetime.datetime(2000 + anio_e, mes_e, dia_e)
+                    fin_existente = datetime.datetime(2000 + anio_s, mes_s, dia_s)
+                    if fecha_inicio_nueva < fin_existente and fecha_fin_nueva > inicio_existente:
+                        return True
+                except (ValueError, IndexError):
+                    continue  # Saltar reservas con fechas mal formateadas
     return False
 
 def registrar_reserva(huespedes, habitaciones, reservas):
@@ -770,6 +1083,7 @@ def registrar_reserva(huespedes, habitaciones, reservas):
     Si está todo OK, la guarda.
     """
     print("\n--- Registrar reserva ---")
+    print("IMPORTANTE: Solo se aceptan reservas entre los años 2025 y 2027 (inclusive).\nNo se permiten reservas en fechas pasadas (ni días anteriores al actual).\n")
     id_reserva = generar_id_reserva(reservas)
     # Validar ID huésped activo
     while True:
@@ -785,65 +1099,78 @@ def registrar_reserva(huespedes, habitaciones, reservas):
             print("Habitación inválida o inactiva. Ingrese un ID de habitación activa.")
         else:
             break
-    # Validar fecha de entrada (no en el pasado)
+    # Validar fecha de entrada (DDMMAA, año entre 25 y 27)
     while True:
-        fecha_entrada = input("Fecha de entrada (DDMM): ").strip()
-        if not (len(fecha_entrada) == 4 and fecha_entrada.isdigit()):
-            print("Formato inválido. Debe ser DDMM.")
-        else:
-            dia = int(fecha_entrada[:2])
-            mes = int(fecha_entrada[2:])
-            hoy = datetime.datetime.now()
-            anio = hoy.year
-            try:
-                fecha_ent = datetime.datetime(anio, mes, dia)
-                if fecha_ent < hoy.replace(hour=0, minute=0, second=0, microsecond=0):
-                    print("No se permiten reservas en el pasado.")
-                else:
-                    break
-            except Exception:
-                print("Fecha inválida.")
-    # Validar fecha de salida (igual formato, debe ser posterior a entrada)
+        fecha_entrada = input("Fecha de entrada (DDMMAA): ").strip()
+        if not (len(fecha_entrada) == 6 and fecha_entrada.isdigit()):
+            print("Formato inválido. Debe ser DDMMAA.")
+            continue
+        dia = int(fecha_entrada[:2])
+        mes = int(fecha_entrada[2:4])
+        anio = int(fecha_entrada[4:6])
+        if not (1 <= dia <= 31):
+            print("Día de entrada inválido. Debe estar entre 01 y 31.")
+            continue
+        if not (1 <= mes <= 12):
+            print("Mes de entrada inválido. Debe estar entre 01 y 12.")
+            continue
+        if not (25 <= anio <= 27):
+            print("Año inválido. Solo se permiten reservas entre 2025 y 2027.")
+            continue
+        try:
+            fecha_ent = datetime.datetime(2000 + anio, mes, dia)
+        except ValueError:
+            print("Fecha inválida (p. ej. día 31 en un mes de 30 días).")
+            continue
+        hoy = datetime.datetime.now()
+        if fecha_ent < hoy.replace(hour=0, minute=0, second=0, microsecond=0):
+            print("❌ No se permiten reservas en el pasado.")
+            continue
+        # Verificar que no sea demasiado lejano en el futuro (máximo 2 años)
+        fecha_maxima = hoy + datetime.timedelta(days=730)  # 2 años
+        if fecha_ent > fecha_maxima:
+            print("❌ No se permiten reservas más allá de 2 años en el futuro.")
+            continue
+        break
+    # Validar fecha de salida (DDMMAA, año entre 25 y 27, posterior a entrada)
     while True:
-        fecha_salida = input("Fecha de salida (DDMM): ").strip()
-        if not (len(fecha_salida) == 4 and fecha_salida.isdigit()):
-            print("Formato inválido. Debe ser DDMM.")
-        else:
-            dia_s = int(fecha_salida[:2])
-            mes_s = int(fecha_salida[2:])
-            try:
-                fecha_sal = datetime.datetime(anio, mes_s, dia_s)
-                if fecha_sal <= fecha_ent:
-                    print("La fecha de salida debe ser posterior a la de entrada.")
-                else:
-                    break
-            except Exception:
-                print("Fecha inválida.")
-
-    # Calcular fechas correctamente usando el año actual y manejando el cruce de año
-    hoy = datetime.datetime.now()
-    anio_actual = hoy.year
-
-    anio_entrada = anio_actual
-    anio_salida = anio_actual
-    # Si la fecha de salida es "menor" a la de entrada, es porque cambió el año.
-    if mes_salida < mes_entrada or (mes_salida == mes_entrada and dia_salida <= dia_entrada):
-        anio_salida = anio_actual + 1
-
-    if not es_fecha_valida(dia_entrada, mes_entrada, anio_entrada) or not es_fecha_valida(dia_salida, mes_salida, anio_salida):
-        print("Fecha inválida (p. ej. día 31 en un mes de 30 días).")
-        return
-
-    fecha_entrada_obj = datetime.datetime(anio_entrada, mes_entrada, dia_entrada)
-    fecha_salida_obj = datetime.datetime(anio_salida, mes_salida, dia_salida)
-
-    if fecha_salida_obj <= fecha_entrada_obj:
-        print("La fecha de salida debe ser posterior a la de entrada.")
-        return
-        
-    noches = (fecha_salida_obj - fecha_entrada_obj).days
-
-    if solapa_reserva(reservas, r, fecha_entrada_obj, fecha_salida_obj):
+        fecha_salida = input("Fecha de salida (DDMMAA): ").strip()
+        if not (len(fecha_salida) == 6 and fecha_salida.isdigit()):
+            print("Formato inválido. Debe ser DDMMAA.")
+            continue
+        dia_s = int(fecha_salida[:2])
+        mes_s = int(fecha_salida[2:4])
+        anio_s = int(fecha_salida[4:6])
+        if not (1 <= dia_s <= 31):
+            print("Día de salida inválido. Debe estar entre 01 y 31.")
+            continue
+        if not (1 <= mes_s <= 12):
+            print("Mes de salida inválido. Debe estar entre 01 y 12.")
+            continue
+        if not (25 <= anio_s <= 27):
+            print("Año inválido. Solo se permiten reservas entre 2025 y 2027.")
+            continue
+        try:
+            fecha_sal = datetime.datetime(2000 + anio_s, mes_s, dia_s)
+        except ValueError:
+            print("Fecha inválida (p. ej. día 31 en un mes de 30 días).")
+            continue
+        if fecha_sal <= fecha_ent:
+            print("❌ La fecha de salida debe ser posterior a la de entrada.")
+            continue
+        # Verificar que haya al menos 1 noche de diferencia
+        if (fecha_sal - fecha_ent).days < 1:
+            print("❌ La reserva debe ser de al menos 1 noche.")
+            continue
+        # Verificar que no sea demasiado larga (máximo 30 días)
+        if (fecha_sal - fecha_ent).days > 30:
+            print("❌ La reserva no puede exceder 30 días.")
+            continue
+        break
+    # Calcular noches
+    noches = (fecha_sal - fecha_ent).days
+    # Solapamiento
+    if solapa_reserva(reservas, r, fecha_ent, fecha_sal):
         print("La habitación ya está reservada en ese rango de fechas.")
         return
     # Validar descuento entre 0 y 99
@@ -853,8 +1180,8 @@ def registrar_reserva(huespedes, habitaciones, reservas):
             print("Ingrese un valor numérico entero para el descuento.")
             continue
         descuento = int(descuento_str)
-        if not (0 <= descuento <= 99):
-            print("El descuento debe estar entre 0 y 99.")
+        if not (0 <= descuento <= 100):
+            print("❌ El descuento debe estar entre 0 y 100.")
             continue
         break
     # Limpiar espacios en campos de texto
@@ -896,7 +1223,7 @@ def informe_tabular_mes(reservas, huespedes, habitaciones):
     hoy = datetime.datetime.now()
     mes_actual = hoy.strftime("%m")
     hay = False
-    encabezado = f"{'Fecha/Hora':<20} | {'Cliente':<20} | {'Producto':<20} | {'Cant.':>5} | {'Unit.':>8} | {'Total':>10}"
+    encabezado = f"{'Fecha/Hora':<24} | {'Cliente':<20} | {'Producto':<14} | {'Cant.':>5} | {'Unit.':>12} | {'Total':>14}"
     print("-" * len(encabezado))
     print(encabezado)
     print("-" * len(encabezado))
@@ -906,7 +1233,7 @@ def informe_tabular_mes(reservas, huespedes, habitaciones):
             h = huespedes.get(datos["idhuesped"], {"nombre": "-", "apellido": "-"})
             hab = habitaciones.get(datos["idhabitacion"], {"numero": "-", "tipo": "-", "precioNoche": 0})
             total = hab["precioNoche"] * datos["cantidadNoches"] * (1 - datos["descuento"]/100)
-            print(f"{fecha:<20} | {h['apellido']+', '+h['nombre']:<20} | {hab['tipo']:<20} | {datos['cantidadNoches']:>5} | {hab['precioNoche']:>8.2f} | {total:>10.2f}")
+            print(f"{fecha:<24} | {h['apellido']+', '+h['nombre']:<20} | {hab['tipo']:<14} | {datos['cantidadNoches']:>5} | {hab['precioNoche']:>12.2f} | {total:>14.2f}")
             hay = True
     if not hay:
         print("No hay operaciones en el mes actual.")
@@ -915,11 +1242,11 @@ def informe_tabular_mes(reservas, huespedes, habitaciones):
 def informe_matriz_cantidades(reservas, habitaciones):
     """Informe 2: Muestra la cantidad de noches reservadas por mes para cada habitación, con formato tabular alineado."""
     print("\n--- Resumen de cantidad de noches reservadas por mes ---")
-    anio_str = input("Ingrese el año para el informe (AAAA): ")
-    if not (anio_str.isdigit() and len(anio_str) == 4):
-        print("Año inválido.")
+    anio_str = input("Ingrese el año para el informe (AA, ej: 25, 26, 27): ").strip()
+    if not (anio_str.isdigit() and len(anio_str) == 2 and anio_str in ["25", "26", "27"]):
+        print("Año inválido. Solo se permiten 25, 26 o 27.")
         return
-    anio = int(anio_str)
+    anio = 2000 + int(anio_str)
     nombres_mes = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
     matriz = {
         hab_id: {mes: 0 for mes in range(1, 13)} 
@@ -947,11 +1274,11 @@ def informe_matriz_cantidades(reservas, habitaciones):
 def informe_matriz_montos(reservas, habitaciones):
     """Informe 3: Muestra la plata total facturada por mes para cada habitación, con formato tabular compacto."""
     print("\n--- Resumen de montos totales por mes ---")
-    anio_str = input("Ingrese el año para el informe (AAAA): ")
-    if not (anio_str.isdigit() and len(anio_str) == 4):
-        print("Año inválido.")
+    anio_str = input("Ingrese el año para el informe (AA, ej: 25, 26, 27): ").strip()
+    if not (anio_str.isdigit() and len(anio_str) == 2 and anio_str in ["25", "26", "27"]):
+        print("Año inválido. Solo se permiten 25, 26 o 27.")
         return
-    anio = int(anio_str)
+    anio = 2000 + int(anio_str)
     nombres_mes = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
     matriz = {
         hab_id: {mes: 0.0 for mes in range(1, 13)} 
@@ -967,13 +1294,13 @@ def informe_matriz_montos(reservas, habitaciones):
                 if reserva_anio == anio:
                     monto = habitaciones[hab_id]["precioNoche"] * datos["cantidadNoches"] * (1 - datos["descuento"]/100)
                     matriz[hab_id][reserva_mes] += monto
-    encabezado = f"{'Hab':<8}|" + ''.join([f"{nombre:>6}|" for nombre in nombres_mes])
+    encabezado = f"{'Hab':<8}|" + ''.join([f"{nombre:>8}|" for nombre in nombres_mes])
     print("-" * len(encabezado))
     print(encabezado)
     print("-" * len(encabezado))
     for hab_id, meses in matriz.items():
         num_hab = habitaciones.get(hab_id, {}).get('numero', hab_id)
-        linea = f"{str(num_hab):<8}|" + ''.join([f"{int(meses[mes]):6}|" for mes in range(1, 13)])
+        linea = f"{str(num_hab):<8}|" + ''.join([f"{int(meses[mes]):8}|" for mes in range(1, 13)])
         print(linea)
     print("-" * len(encabezado))
 
@@ -994,14 +1321,80 @@ def informe_a_eleccion(reservas, huespedes, habitaciones):
         print(f"{idh:<5} {nombre:<20} {cant:<8}")
     print("-" * len(encabezado))
 
+def migrar_reservas_ddmmaa(reservas):
+    """Agrega el año '25' a las fechas de reservas antiguas en formato DDMM y elimina reservas con fechas inválidas."""
+    for datos in reservas.values():
+        if len(datos["fechaEntrada"]) == 4:
+            datos["fechaEntrada"] += "25"
+        if len(datos["fechaSalida"]) == 4:
+            datos["fechaSalida"] += "25"
+    
+    # Validar fechas migradas
+    reservas_invalidas = []
+    for rid, datos in reservas.items():
+        try:
+            # Validar fecha de entrada
+            if len(datos["fechaEntrada"]) == 6:
+                dia = int(datos["fechaEntrada"][:2])
+                mes = int(datos["fechaEntrada"][2:4])
+                anio = int(datos["fechaEntrada"][4:6])
+                if not es_fecha_valida(dia, mes, 2000 + anio):
+                    reservas_invalidas.append(rid)
+                    continue
+            # Validar fecha de salida
+            if len(datos["fechaSalida"]) == 6:
+                dia = int(datos["fechaSalida"][:2])
+                mes = int(datos["fechaSalida"][2:4])
+                anio = int(datos["fechaSalida"][4:6])
+                if not es_fecha_valida(dia, mes, 2000 + anio):
+                    reservas_invalidas.append(rid)
+                    continue
+        except (ValueError, IndexError):
+            reservas_invalidas.append(rid)
+    # Remover reservas con fechas inválidas
+    for rid in reservas_invalidas:
+        if rid in reservas:
+            del reservas[rid]
+    if reservas_invalidas:
+        print(f"⚠️  Se removieron {len(reservas_invalidas)} reservas con fechas inválidas después de la migración.")
+    return reservas
+
+
+
 #----------------------------------------------------------------------------------------------
 # MENÚS
 #----------------------------------------------------------------------------------------------
+def mostrar_ayuda_huespedes():
+    """Muestra ayuda contextual para la gestión de huéspedes."""
+    print("\n📚 AYUDA - GESTIÓN DE HUÉSPEDES")
+    print("=" * 50)
+    print("📋 Formatos requeridos:")
+    print("   • ID: 2-6 caracteres (letras y números)")
+    print("   • Nombre/Apellido: 2-20 caracteres, solo letras y espacios")
+    print("   • DNI: 6-8 dígitos numéricos")
+    print("   • Email: formato válido con @ y dominio")
+    print("   • Teléfono: 7-15 dígitos (puede empezar con +)")
+    print("   • Medio de pago: Efectivo, Tarjeta, Transferencia, Débito, Crédito")
+    print("     (acepta variaciones: efectivo, EFECTIVO, débito, etc.)")
+    print("\n💡 Notas:")
+    print("   • Los emails y teléfonos deben ser únicos")
+    print("   • No se puede eliminar huéspedes con reservas activas")
+    print("   • Las eliminaciones son lógicas (no se borran físicamente)")
+    print("   • Los medios de pago se normalizan automáticamente")
+    print("=" * 50)
+
 def menu_huespedes():
     """Menú de gestión de huéspedes con persistencia en JSON."""
     while True:
-        print("\n[1] Ingresar huésped\n[2] Modificar huésped\n[3] Eliminar huésped\n[4] Listar huéspedes activos\n[5] Buscar huésped\n[0] Volver al menú principal")
-        sub = input_opciones("Opción: ", ["1", "2", "3", "4", "5", "0"])
+        print("\n🏨 GESTIÓN DE HUÉSPEDES")
+        print("[1] Ingresar huésped")
+        print("[2] Modificar huésped")
+        print("[3] Eliminar huésped")
+        print("[4] Listar huéspedes activos")
+        print("[5] Buscar huésped")
+        print("[6] Ayuda")
+        print("[0] Volver al menú principal")
+        sub = input_opciones("Opción: ", ["1", "2", "3", "4", "5", "6", "0"])
         if sub == "1":
             alta_huesped()
         elif sub == "2":
@@ -1012,14 +1405,41 @@ def menu_huespedes():
             listar_huespedes_activos()
         elif sub == "5":
             buscar_huespedes()
+        elif sub == "6":
+            mostrar_ayuda_huespedes()
         elif sub == "0":
             break
+
+def mostrar_ayuda_habitaciones():
+    """Muestra ayuda contextual para la gestión de habitaciones."""
+    print("\n📚 AYUDA - GESTIÓN DE HABITACIONES")
+    print("=" * 50)
+    print("📋 Formatos requeridos:")
+    print("   • ID: 2-6 caracteres (letras y números)")
+    print("   • Número: 1-6 dígitos numéricos")
+    print("   • Tipo: Simple, Doble, Triple, Suite, Familiar")
+    print("   • Descripción: 5-25 caracteres (letras, números, comas, puntos, espacios)")
+    print("   • Precio: número positivo, 1-8 caracteres")
+    print("   • Piso: 1-3 dígitos numéricos")
+    print("   • Estado: Disponible, Ocupada, Mantenimiento")
+    print("   • Servicios: 2-50 caracteres, separados por coma")
+    print("\n💡 Notas:")
+    print("   • No se puede eliminar habitaciones con reservas activas")
+    print("   • Las eliminaciones son lógicas (no se borran físicamente)")
+    print("=" * 50)
 
 def menu_habitaciones():
     """Menú de gestión de habitaciones con persistencia en JSON."""
     while True:
-        print("\n[1] Ingresar habitación\n[2] Modificar habitación\n[3] Eliminar habitación\n[4] Listar habitaciones activas\n[5] Buscar habitación\n[0] Volver al menú principal")
-        sub = input_opciones("Opción: ", ["1", "2", "3", "4", "5", "0"])
+        print("\n🏨 GESTIÓN DE HABITACIONES")
+        print("[1] Ingresar habitación")
+        print("[2] Modificar habitación")
+        print("[3] Eliminar habitación")
+        print("[4] Listar habitaciones activas")
+        print("[5] Buscar habitación")
+        print("[6] Ayuda")
+        print("[0] Volver al menú principal")
+        sub = input_opciones("Opción: ", ["1", "2", "3", "4", "5", "6", "0"])
         if sub == "1":
             alta_habitacion()
         elif sub == "2":
@@ -1030,26 +1450,113 @@ def menu_habitaciones():
             listar_habitaciones_activas()
         elif sub == "5":
             buscar_habitaciones()
+        elif sub == "6":
+            mostrar_ayuda_habitaciones()
         elif sub == "0":
             break
+
+def mostrar_ayuda_reservas():
+    """Muestra ayuda contextual para la gestión de reservas."""
+    print("\n📚 AYUDA - GESTIÓN DE RESERVAS")
+    print("=" * 50)
+    print("📋 Formatos requeridos:")
+    print("   • ID Huésped: debe existir y estar activo")
+    print("   • ID Habitación: debe existir y estar activa")
+    print("   • Fecha Entrada: DDMMAA (años 25, 26, 27)")
+    print("   • Fecha Salida: DDMMAA (posterior a entrada)")
+    print("   • Descuento: 0-99%")
+    print("\n💡 Notas:")
+    print("   • Solo se permiten reservas entre 2025-2027")
+    print("   • No se permiten reservas en fechas pasadas")
+    print("   • No se permiten solapamientos de fechas")
+    print("   • Los IDs se generan automáticamente")
+    print("=" * 50)
 
 def menu_reservas(huespedes, habitaciones, reservas):
     """Menú de gestión de reservas."""
     while True:
-        print("\n[1] Registrar reserva\n[2] Listar reservas\n[0] Volver al menú principal")
-        sub = input_opciones("Opción: ", ["1", "2", "0"])
+        print("\n🏨 GESTIÓN DE RESERVAS")
+        print("[1] Registrar reserva")
+        print("[2] Listar reservas")
+        print("[3] Ayuda")
+        print("[0] Volver al menú principal")
+        sub = input_opciones("Opción: ", ["1", "2", "3", "0"])
         if sub == "1":
             registrar_reserva(huespedes, habitaciones, reservas)
         elif sub == "2":
             listar_reservas(reservas, huespedes, habitaciones)
+        elif sub == "3":
+            mostrar_ayuda_reservas()
         elif sub == "0":
             break
+
+def mostrar_ayuda_informes():
+    """Muestra ayuda contextual para los informes."""
+    print("\n" + "=" * 70)
+    print("📊 CENTRO DE AYUDA - SISTEMA DE INFORMES")
+    print("=" * 70)
+    print("🏨 Sistema de Gestión Hotelera - Módulo de Informes")
+    print("📅 Generación de reportes y análisis de datos")
+    print("=" * 70)
+    
+    print("\n📋 INFORMES DISPONIBLES:")
+    print("─" * 50)
+    
+    print("\n🔹 1. OPERACIONES DEL MES EN CURSO")
+    print("   ┌─────────────────────────────────────────────────┐")
+    print("   │ • Muestra todas las reservas del mes actual     │")
+    print("   │ • Incluye datos del cliente y habitación        │")
+    print("   │ • Calcula cantidades, precios unitarios y total │")
+    print("   │ • Formato tabular profesional y alineado        │")
+    print("   └─────────────────────────────────────────────────┘")
+    
+    print("\n🔹 2. RESUMEN ANUAL - CANTIDAD DE NOCHES")
+    print("   ┌─────────────────────────────────────────────────┐")
+    print("   │ • Matriz de habitaciones vs meses del año       │")
+    print("   │ • Muestra noches reservadas por habitación      │")
+    print("   │ • Solicita año en formato AA (25, 26, 27)       │")
+    print("   │ • Útil para análisis de ocupación               │")
+    print("   └─────────────────────────────────────────────────┘")
+    
+    print("\n🔹 3. RESUMEN ANUAL - MONTOS TOTALES")
+    print("   ┌─────────────────────────────────────────────────┐")
+    print("   │ • Matriz de habitaciones vs meses del año       │")
+    print("   │ • Muestra ingresos totales por habitación       │")
+    print("   │ • Incluye descuentos aplicados                  │")
+    print("   │ • Solicita año en formato AA (25, 26, 27)       │")
+    print("   │ • Ideal para análisis financiero                │")
+    print("   └─────────────────────────────────────────────────┘")
+    
+    print("\n🔹 4. RESERVAS POR HUÉSPED ACTIVO")
+    print("   ┌─────────────────────────────────────────────────┐")
+    print("   │ • Lista todos los huéspedes activos             │")
+    print("   │ • Cuenta reservas realizadas por cada uno       │")
+    print("   │ • Formato tabular claro y organizado            │")
+    print("   │ • Útil para análisis de clientes frecuentes     │")
+    print("   └─────────────────────────────────────────────────┘")
+    
+    print("\n💡 CONSEJOS DE USO:")
+    print("─" * 30)
+    print("   • Los informes se generan en tiempo real")
+    print("   • Los datos provienen de los archivos JSON")
+    print("   • Asegúrese de tener datos actualizados")
+    print("   • Los años válidos son 25, 26 y 27")
+    
+    print("\n" + "=" * 70)
+    print("✅ Para más información, consulte la documentación del sistema")
+    print("=" * 70)
 
 def menu_informes(reservas, huespedes, habitaciones):
     """Menú de informes con las 4 opciones requeridas."""
     while True:
-        print("\n--- MENÚ DE INFORMES ---\n[1] Listado tabular de operaciones del mes en curso\n[2] Resumen anual de cantidad de noches por habitación\n[3] Resumen anual de montos totales por habitación\n[4] Informe a elección del equipo\n[0] Volver al menú principal")
-        op = input_opciones("Opción: ", ["1", "2", "3", "4", "0"])
+        print("\n📊 MENÚ DE INFORMES")
+        print("[1] Listado tabular de operaciones del mes en curso")
+        print("[2] Resumen anual de cantidad de noches por habitación")
+        print("[3] Resumen anual de montos totales por habitación")
+        print("[4] Informe a elección del equipo")
+        print("[5] Ayuda")
+        print("[0] Volver al menú principal")
+        op = input_opciones("Opción: ", ["1", "2", "3", "4", "5", "0"])
         if op == "1":
             informe_tabular_mes(reservas, huespedes, habitaciones)
         elif op == "2":
@@ -1058,6 +1565,8 @@ def menu_informes(reservas, huespedes, habitaciones):
             informe_matriz_montos(reservas, habitaciones)
         elif op == "4":
             informe_a_eleccion(reservas, huespedes, habitaciones)
+        elif op == "5":
+            mostrar_ayuda_informes()
         elif op == "0":
             break
 
@@ -1066,7 +1575,12 @@ def menu_informes(reservas, huespedes, habitaciones):
 #----------------------------------------------------------------------------------------------
 def main():
     """Función principal del sistema de gestión hotelera."""
-    print("\nBienvenido/a al Sistema de Gestión Hotelera\n")
+    print("\n" + "=" * 60)
+    print("🏨 SISTEMA DE GESTIÓN HOTELERA - ENTREGA 2")
+    print("=" * 60)
+    print("Bienvenido/a al Sistema de Gestión Hotelera")
+    print("Desarrollado por: Equipo 5 - Programación 1 (Viernes async)")
+    print("=" * 60)
     """
     huespedes = {
         "H1": {"activo": True, "nombre": "Ana", "apellido": "García", "documento": 30123456, "email": "ana.garcia@mail.com", "telefono": 1123456701, "mediosDePago": ["Efectivo"]},
@@ -1104,12 +1618,14 @@ def main():
         }
     """
     while True:
-        print("\n--- MENU PRINCIPAL ---")
+        print("\n🏨 MENÚ PRINCIPAL")
+        print("=" * 40)
         print("[1] Gestión de Huéspedes")
         print("[2] Gestión de Habitaciones")
         print("[3] Gestión de Reservas")
         print("[4] Informes")
         print("[0] Salir")
+        print("=" * 40)
         op = input_opciones("Opción: ", ["1", "2", "3", "4", "0"])
         if op == "1":
             menu_huespedes()
@@ -1118,31 +1634,124 @@ def main():
         elif op == "3":
             # Leer datos actualizados de los archivos antes de operar
             try:
-                with open("huespedes.json", 'r', encoding='utf-8') as f:
+                with open(ARCHIVO_HUESPEDES, 'r', encoding='utf-8') as f:
                     huespedes = json.load(f)
-                with open("habitaciones.json", 'r', encoding='utf-8') as f:
+                with open(ARCHIVO_HABITACIONES, 'r', encoding='utf-8') as f:
                     habitaciones = json.load(f)
-                with open("reservas.json", 'r', encoding='utf-8') as f:
+                with open(ARCHIVO_RESERVAS, 'r', encoding='utf-8') as f:
                     reservas = json.load(f)
-            except (FileNotFoundError, OSError) as detalle:
-                print("Error al intentar abrir archivo(s):", detalle)
-                pass
+                reservas = migrar_reservas_ddmmaa(reservas)
+            except FileNotFoundError as e:
+                print("❌ Error: No se encontraron los archivos JSON necesarios.")
+                print("💡 Ejecute primero el script de conversión para generar los archivos de datos:")
+                print("   python Conversión_DICCIONARIO_a_ARCHIVO_JSON.py")
+                continue
+            except OSError as detalle:
+                print(f"❌ Error al intentar abrir archivo(s): {detalle}")
+                print("💡 Verifique que los archivos existan y tengan permisos de lectura")
+                continue
+            except json.JSONDecodeError as detalle:
+                print(f"❌ Error en formato JSON: {detalle}")
+                print("💡 Los archivos JSON pueden estar corruptos")
+                respuesta = input("¿Desea intentar restaurar desde backup? (s/n): ").strip().lower()
+                if respuesta == 's':
+                    if restaurar_desde_backup(ARCHIVO_RESERVAS):
+                        continue
+                continue
+            # Llamar a migrar_reservas_ddmmaa(reservas) al cargar reservas en main antes de operar.
             menu_reservas(huespedes, habitaciones, reservas)
         elif op == "4":
             try:
-                with open("huespedes.json", 'r', encoding='utf-8') as f:
+                with open(ARCHIVO_HUESPEDES, 'r', encoding='utf-8') as f:
                     huespedes = json.load(f)
-                with open("habitaciones.json", 'r', encoding='utf-8') as f:
+                with open(ARCHIVO_HABITACIONES, 'r', encoding='utf-8') as f:
                     habitaciones = json.load(f)
-                with open("reservas.json", 'r', encoding='utf-8') as f:
+                with open(ARCHIVO_RESERVAS, 'r', encoding='utf-8') as f:
                     reservas = json.load(f)
-            except (FileNotFoundError, OSError) as detalle:
-                print("Error al intentar abrir archivo(s):", detalle)
-                pass
+            except FileNotFoundError as e:
+                print("❌ Error: No se encontraron los archivos JSON necesarios.")
+                print("💡 Ejecute primero el script de conversión para generar los archivos de datos:")
+                print("   python Conversión_DICCIONARIO_a_ARCHIVO_JSON.py")
+                continue
+            except OSError as detalle:
+                print(f"❌ Error al intentar abrir archivo(s): {detalle}")
+                print("💡 Verifique que los archivos existan y tengan permisos de lectura")
+                continue
+            except json.JSONDecodeError as detalle:
+                print(f"❌ Error en formato JSON: {detalle}")
+                print("💡 Los archivos JSON pueden estar corruptos")
+                respuesta = input("¿Desea intentar restaurar desde backup? (s/n): ").strip().lower()
+                if respuesta == 's':
+                    if restaurar_desde_backup(ARCHIVO_RESERVAS):
+                        continue
+                continue
             menu_informes(reservas, huespedes, habitaciones)
         elif op == "0":
-            print("Gracias por usar el sistema. ¡Hasta luego!")
+            print("\n" + "=" * 60)
+            print("👋 ¡Gracias por usar el Sistema de Gestión Hotelera!")
+            print("Desarrollado por: Equipo 5 - Programación 1 (Viernes async)")
+            print("=" * 60)
             break
+
+def validar_id_unico_huesped(huespedes, idh):
+    """Valida que el ID del huésped sea único."""
+    return idh not in huespedes
+
+def validar_id_unico_habitacion(habitaciones, idh):
+    """Valida que el ID de la habitación sea único."""
+    return idh not in habitaciones
+
+def validar_numero_habitacion_unico(habitaciones, numero):
+    """Valida que el número de habitación sea único."""
+    for datos in habitaciones.values():
+        if datos["activo"] and datos["numero"] == numero:
+            return False
+    return True
+
+def validar_dni_unico(huespedes, dni):
+    """Valida que el DNI sea único entre huéspedes activos."""
+    for datos in huespedes.values():
+        if datos["activo"] and datos["documento"] == dni:
+            return False
+    return True
+
+def validar_id_habitacion(idh):
+    """Valida que el ID de la habitación tenga entre 2 y 6 caracteres."""
+    if not (MIN_LENGTH_ID <= len(idh) <= MAX_LENGTH_ID):
+        return False
+    # Verificar que solo contenga letras y números
+    if not idh.isalnum():
+        return False
+    # Verificar que no sea solo números
+    if idh.isdigit():
+        return False
+    return True
+
+def validar_id_reserva(rid):
+    """Valida que el ID de reserva tenga exactamente 9 caracteres y formato RSVxxxnnn."""
+    if len(rid) != MAX_LENGTH_ID_RESERVA:
+        return False
+    # Verificar formato: RSV + 3 dígitos + 3 letras
+    if not rid.startswith("RSV"):
+        return False
+    if not rid[3:6].isdigit():
+        return False
+    if not rid[6:9].isalpha():
+        return False
+    return True
+
+def validar_formato_id_reserva(rid):
+    """Valida que el ID de reserva tenga el formato correcto RSVxxxnnn."""
+    if len(rid) != MAX_LENGTH_ID_RESERVA:
+        return False, f"ID de reserva debe tener exactamente {MAX_LENGTH_ID_RESERVA} caracteres"
+    # Verificar formato: RSV + 3 dígitos + 3 letras
+    if not rid.startswith("RSV"):
+        return False, "ID de reserva debe empezar con 'RSV'"
+    if not rid[3:6].isdigit():
+        return False, "ID de reserva debe tener 3 dígitos después de 'RSV'"
+    if not rid[6:9].isalpha():
+        return False, "ID de reserva debe terminar con 3 letras"
+    return True, ""
 
 if __name__ == "__main__":
     main()
