@@ -300,7 +300,7 @@ def input_telefono(msg):
                 else:
                     print("❌ Teléfono inválido. No puede ser negativo.")
         else:
-            print("❌ Teléfono inválido. Debe tener entre 7 y 15 dígitos numéricos.")
+            print("❌ Teléfono inválido. Debe tener entre 7 y 15 dígitos numéricos positivos.")
 
 def input_email_validado(msg):
     """Solicita un email válido por consola, validando su formato con regex."""
@@ -414,7 +414,7 @@ def alta_huesped(huespedes_archivo=ARCHIVO_HUESPEDES):
     
     # Solicitar medios de pago (pueden ser múltiples)
     while True:
-        medios_input = input("Medios de pago (separados por coma): ").strip()
+        medios_input = input(f"Medios de pago (separados por coma) [{', '.join(MEDIOS_DE_PAGO)}]: ").strip()
         medios_lista = [m.strip() for m in medios_input.split(',') if m.strip()]
         if len(medios_input) < 2 or len(medios_input) > 50:
             print("❌ Medios de pago inválidos. Debe tener entre 2 y 50 caracteres.")
