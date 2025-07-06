@@ -3,6 +3,7 @@ import datetime
 import random
 import string
 import os
+import time
 
 #----------------------------------------------------------------------------------------------
 # CONSTANTES Y CONFIGURACIÓN
@@ -22,7 +23,7 @@ MAX_LENGTH_DESCRIPCION = 25
 MIN_LENGTH_SERVICIOS = 2
 MAX_LENGTH_SERVICIOS = 50
 MIN_LENGTH_NUMERO_HAB = 1
-MAX_LENGTH_NUMERO_HAB = 6
+MAX_LENGTH_NUMERO_HAB = 4
 MIN_LENGTH_PISO = 1
 MAX_LENGTH_PISO = 3
 MIN_LENGTH_PRECIO = 1
@@ -231,19 +232,24 @@ def es_fecha_valida(dia, mes, anio):
 #----------------------------------------------------------------------------------------------
 def generar_id_reserva(reservas):
     """Genera un ID único tipo RSVxxxnnn para la reserva (exactamente 9 caracteres)."""
-    while True:
+    intentos = 0
+    max_intentos = 1000
+    
+    while intentos < max_intentos:
         numeros = ''.join(random.choices(string.digits, k=3))
         letras = ''.join(random.choices(string.ascii_uppercase, k=3))
         rid = f"RSV{numeros}{letras}"
         # Verificar que tenga exactamente 9 caracteres y formato correcto
-        if len(rid) != MAX_LENGTH_ID_RESERVA:
-            continue
-        # Verificar formato
-        valido, _ = validar_formato_id_reserva(rid)
-        if not valido:
-            continue
-        if rid not in reservas:
-            return rid
+        if len(rid) == MAX_LENGTH_ID_RESERVA:
+            valido, _ = validar_formato_id_reserva(rid)
+            if valido and rid not in reservas:
+                return rid
+        intentos += 1
+    
+    # Si no se encuentra un ID único después de muchos intentos, generar uno con timestamp
+    timestamp = str(int(time.time()))[-3:]
+    rid = f"RSV{timestamp}{random.choice(string.ascii_uppercase)}{random.choice(string.ascii_uppercase)}{random.choice(string.ascii_uppercase)}"
+    return rid
 
 def generar_servicios_aleatorios():
     """Genera una lista aleatoria de servicios que cumple con las validaciones."""
@@ -281,59 +287,67 @@ def generar_huespedes():
     
     for i, datos in enumerate(datos_base, 1):
         idh = f"H{i}"
+        huésped_válido = True
         
         # Validar ID
         valido, error = validar_id(idh, "ID de huésped")
         if not valido:
             errores.append(f"Huésped {i}: {error}")
-            continue
+            huésped_válido = False
         
         # Validar nombre
-        valido, error = validar_nombre_apellido(datos["nombre"], "Nombre")
-        if not valido:
-            errores.append(f"Huésped {idh}: {error}")
-            continue
+        if huésped_válido:
+            valido, error = validar_nombre_apellido(datos["nombre"], "Nombre")
+            if not valido:
+                errores.append(f"Huésped {idh}: {error}")
+                huésped_válido = False
         
         # Validar apellido
-        valido, error = validar_nombre_apellido(datos["apellido"], "Apellido")
-        if not valido:
-            errores.append(f"Huésped {idh}: {error}")
-            continue
+        if huésped_válido:
+            valido, error = validar_nombre_apellido(datos["apellido"], "Apellido")
+            if not valido:
+                errores.append(f"Huésped {idh}: {error}")
+                huésped_válido = False
         
         # Validar DNI
-        valido, error = validar_dni(datos["documento"])
-        if not valido:
-            errores.append(f"Huésped {idh}: {error}")
-            continue
+        if huésped_válido:
+            valido, error = validar_dni(datos["documento"])
+            if not valido:
+                errores.append(f"Huésped {idh}: {error}")
+                huésped_válido = False
         
         # Validar email
-        valido, error = validar_email(datos["email"])
-        if not valido:
-            errores.append(f"Huésped {idh}: {error}")
-            continue
+        if huésped_válido:
+            valido, error = validar_email(datos["email"])
+            if not valido:
+                errores.append(f"Huésped {idh}: {error}")
+                huésped_válido = False
         
         # Validar teléfono
-        valido, error = validar_telefono(datos["telefono"])
-        if not valido:
-            errores.append(f"Huésped {idh}: {error}")
-            continue
+        if huésped_válido:
+            valido, error = validar_telefono(datos["telefono"])
+            if not valido:
+                errores.append(f"Huésped {idh}: {error}")
+                huésped_válido = False
         
         # Validar unicidad de email y teléfono
-        valido, error = validar_unicidad_email_telefono(huespedes, datos["email"], datos["telefono"])
-        if not valido:
-            errores.append(f"Huésped {idh}: {error}")
-            continue
+        if huésped_válido:
+            valido, error = validar_unicidad_email_telefono(huespedes, datos["email"], datos["telefono"])
+            if not valido:
+                errores.append(f"Huésped {idh}: {error}")
+                huésped_válido = False
         
         # Si todas las validaciones pasan, agregar el huésped
-        huespedes[idh] = {
-            "activo": True,
-            "nombre": datos["nombre"],
-            "apellido": datos["apellido"],
-            "documento": datos["documento"],
-            "email": datos["email"],
-            "telefono": datos["telefono"],
-            "mediosDePago": datos["mediosDePago"]
-        }
+        if huésped_válido:
+            huespedes[idh] = {
+                "activo": True,
+                "nombre": datos["nombre"],
+                "apellido": datos["apellido"],
+                "documento": datos["documento"],
+                "email": datos["email"],
+                "telefono": datos["telefono"],
+                "mediosDePago": datos["mediosDePago"]
+            }
     
     print(f"✅ Huéspedes generados: {len(huespedes)} exitosos, {len(errores)} errores")
     if errores:
@@ -352,59 +366,63 @@ def generar_habitaciones():
     
     for i in range(1, 11):
         idh = f"R{i}"
+        habitación_válida = True
         
         # Validar ID
         valido, error = validar_id(idh, "ID de habitación")
         if not valido:
             errores.append(f"Habitación {i}: {error}")
-            continue
+            habitación_válida = False
         
         # Generar datos de la habitación
-        tipo = TIPOS_HABITACION[i % len(TIPOS_HABITACION)]
-        numero = 100 + i
-        descripcion = "Vista al mar"
-        precio_noche = 10000 + (i * 500)
-        piso = i % 5 + 1
-        estado = "Disponible"
-        servicios_incluidos = generar_servicios_aleatorios()
-        
-        # Validar número de habitación
-        if not (MIN_LENGTH_NUMERO_HAB <= len(str(numero)) <= MAX_LENGTH_NUMERO_HAB):
-            errores.append(f"Habitación {idh}: Número debe tener entre {MIN_LENGTH_NUMERO_HAB} y {MAX_LENGTH_NUMERO_HAB} dígitos")
-            continue
-        
-        # Validar descripción
-        if not (MIN_LENGTH_DESCRIPCION <= len(descripcion) <= MAX_LENGTH_DESCRIPCION):
-            errores.append(f"Habitación {idh}: Descripción debe tener entre {MIN_LENGTH_DESCRIPCION} y {MAX_LENGTH_DESCRIPCION} caracteres")
-            continue
-        
-        # Validar precio
-        if not (MIN_LENGTH_PRECIO <= len(str(precio_noche)) <= MAX_LENGTH_PRECIO):
-            errores.append(f"Habitación {idh}: Precio debe tener entre {MIN_LENGTH_PRECIO} y {MAX_LENGTH_PRECIO} caracteres")
-            continue
-        
-        # Validar piso
-        if not (MIN_LENGTH_PISO <= len(str(piso)) <= MAX_LENGTH_PISO):
-            errores.append(f"Habitación {idh}: Piso debe tener entre {MIN_LENGTH_PISO} y {MAX_LENGTH_PISO} caracteres")
-            continue
-        
-        # Validar servicios
-        valido, error = validar_servicios(servicios_incluidos)
-        if not valido:
-            errores.append(f"Habitación {idh}: {error}")
-            continue
-        
-        # Si todas las validaciones pasan, agregar la habitación
-        habitaciones[idh] = {
-            "activo": True,
-            "numero": numero,
-            "tipo": tipo,
-            "descripcion": descripcion,
-            "precioNoche": precio_noche,
-            "piso": piso,
-            "estado": estado,
-            "serviciosIncluidos": servicios_incluidos
-        }
+        if habitación_válida:
+            tipo = TIPOS_HABITACION[i % len(TIPOS_HABITACION)]
+            numero = 100 + i
+            descripcion = "Vista al mar"
+            precio_noche = 10000 + (i * 500)
+            piso = i % 5 + 1
+            estado = "Disponible"
+            servicios_incluidos = generar_servicios_aleatorios()
+            
+            # Validar número de habitación
+            if not (MIN_LENGTH_NUMERO_HAB <= len(str(numero)) <= MAX_LENGTH_NUMERO_HAB):
+                errores.append(f"Habitación {idh}: Número debe tener entre {MIN_LENGTH_NUMERO_HAB} y {MAX_LENGTH_NUMERO_HAB} dígitos (máximo 9999)")
+                habitación_válida = False
+            
+            # Validar descripción
+            if habitación_válida and not (MIN_LENGTH_DESCRIPCION <= len(descripcion) <= MAX_LENGTH_DESCRIPCION):
+                errores.append(f"Habitación {idh}: Descripción debe tener entre {MIN_LENGTH_DESCRIPCION} y {MAX_LENGTH_DESCRIPCION} caracteres")
+                habitación_válida = False
+            
+            # Validar precio
+            if habitación_válida and not (MIN_LENGTH_PRECIO <= len(str(precio_noche)) <= MAX_LENGTH_PRECIO):
+                errores.append(f"Habitación {idh}: Precio debe tener entre {MIN_LENGTH_PRECIO} y {MAX_LENGTH_PRECIO} caracteres")
+                habitación_válida = False
+            
+            # Validar piso
+            if habitación_válida and not (MIN_LENGTH_PISO <= len(str(piso)) <= MAX_LENGTH_PISO):
+                errores.append(f"Habitación {idh}: Piso debe tener entre {MIN_LENGTH_PISO} y {MAX_LENGTH_PISO} caracteres")
+                habitación_válida = False
+            
+            # Validar servicios
+            if habitación_válida:
+                valido, error = validar_servicios(servicios_incluidos)
+                if not valido:
+                    errores.append(f"Habitación {idh}: {error}")
+                    habitación_válida = False
+            
+            # Si todas las validaciones pasan, agregar la habitación
+            if habitación_válida:
+                habitaciones[idh] = {
+                    "activo": True,
+                    "numero": numero,
+                    "tipo": tipo,
+                    "descripcion": descripcion,
+                    "precioNoche": precio_noche,
+                    "piso": piso,
+                    "estado": estado,
+                    "serviciosIncluidos": servicios_incluidos
+                }
     
     print(f"✅ Habitaciones generadas: {len(habitaciones)} exitosas, {len(errores)} errores")
     if errores:
@@ -729,7 +747,7 @@ def main():
         
         respuesta = input("\n¿Desea sobrescribir los archivos existentes? (s/n): ").strip().lower()
         if respuesta != 's':
-            print("Operación cancelada.")
+            print("❌ Operación cancelada.")
             return
     
     print("\n🔄 Iniciando generación de datos...")
@@ -769,6 +787,8 @@ def main():
             print("✅ Todos los archivos JSON se generaron sin errores")
             print("✅ La integridad referencial es correcta")
             print("✅ Los datos están listos para usar en el sistema hotelero")
+            print("\n⚠️  Todos los huéspedes generados tienen reservas activas.\n   Para probar la función de eliminar huésped, cree uno nuevo sin reservas desde el sistema principal.")
+            print("\n⚠️  Todas las habitaciones generadas tienen reservas activas o futuras.\n   Para probar la función de eliminar habitación, cree una nueva sin reservas desde el sistema principal.")
         else:
             print(f"\n⚠️  GENERACIÓN COMPLETADA CON ADVERTENCIAS")
             print(f"✅ Los archivos se generaron correctamente")

@@ -45,7 +45,7 @@ MAX_LENGTH_DESCRIPCION = 25
 MIN_LENGTH_SERVICIOS = 2
 MAX_LENGTH_SERVICIOS = 50
 MIN_LENGTH_NUMERO_HAB = 1
-MAX_LENGTH_NUMERO_HAB = 6
+MAX_LENGTH_NUMERO_HAB = 4
 MIN_LENGTH_PISO = 1
 MAX_LENGTH_PISO = 3
 MIN_LENGTH_PRECIO = 1
@@ -487,7 +487,16 @@ def modificar_huesped(huespedes_archivo=ARCHIVO_HUESPEDES):
         return
     
     idh = input_id_huesped("ID del huésped a modificar: ")
-    if idh in huespedes and huespedes[idh]["activo"]:
+    if idh in huespedes:
+        if not huespedes[idh]["activo"]:
+            print(f"⚠️  El huésped {idh} está inactivo.")
+            reactivar = input("¿Desea reactivarlo? (s/n): ").strip().lower()
+            if reactivar == "s":
+                huespedes[idh]["activo"] = True
+                print("✅ Huésped reactivado.")
+            else:
+                print("❌ No se puede modificar un huésped inactivo sin reactivarlo.")
+                return
         print("💡 Deje vacío para no modificar ese campo.")
         
         # Mostrar datos actuales
@@ -756,11 +765,11 @@ def alta_habitacion(habitaciones_archivo=ARCHIVO_HABITACIONES):
                     else:
                         print("❌ Ya existe una habitación con ese número.")
                 else:
-                    print("❌ Número de habitación inválido. No puede exceder 9999.")
+                    print("❌ Número de habitación inválido. No puede exceder 9999 (4 dígitos).")
             else:
                 print("❌ Número de habitación inválido. No puede ser negativo.")
         else:
-            print(f"❌ Número inválido. Debe tener entre {MIN_LENGTH_NUMERO_HAB} y {MAX_LENGTH_NUMERO_HAB} dígitos numéricos.")
+            print(f"❌ Número inválido. Debe tener entre {MIN_LENGTH_NUMERO_HAB} y {MAX_LENGTH_NUMERO_HAB} dígitos numéricos (máximo 9999).")
     
     # Tipo habitación
     tipo = None
@@ -881,7 +890,7 @@ def alta_habitacion(habitaciones_archivo=ARCHIVO_HABITACIONES):
     print(f"✅ Habitación {numero} agregada correctamente.")
 
 def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
-    """Permite modificar todos los datos de una habitación activa, persistiendo en archivo JSON."""
+    """Permite modificar todos los datos de una habitación (activa o inactiva), persistiendo en archivo JSON."""
     print("\n--- Modificar habitación ---")
     try:
         with open(habitaciones_archivo, mode='r', encoding='utf-8') as f:
@@ -894,8 +903,24 @@ def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
         return
     
     idh = input("ID habitación a modificar: ").strip()
-    if idh in habitaciones and habitaciones[idh]["activo"]:
+    if idh in habitaciones:
+        # Mostrar estado actual de la habitación
+        estado_actual = "ACTIVA" if habitaciones[idh]["activo"] else "INACTIVA"
+        print(f"📋 Habitación {idh} - Estado actual: {estado_actual}")
+        
         print("Deje vacío para no modificar ese campo.")
+        
+        # Opción para reactivar habitaciones inactivas
+        if not habitaciones[idh]["activo"]:
+            print(f"\n💡 La habitación está inactiva.")
+            reactivar = input("¿Desea reactivarla? (s/n): ").strip().lower()
+            if reactivar == "s":
+                habitaciones[idh]["activo"] = True
+                print("✅ Habitación reactivada.")
+            else:
+                print("❌ No se puede modificar una habitación inactiva sin reactivarla.")
+                return
+        
         for campo in ["numero", "tipo", "descripcion", "precioNoche", "piso", "estado", "serviciosIncluidos"]:
             actual = habitaciones[idh][campo]
             nuevo = None
@@ -905,14 +930,17 @@ def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
                     break
                 
                 if campo == "numero":
-                    if nuevo_input.isdigit() and 1 <= len(nuevo_input) <= 6:
+                    if nuevo_input.isdigit() and 1 <= len(nuevo_input) <= 4:
                         nuevo_val = int(nuevo_input)
                         if nuevo_val >= 0:
-                            nuevo = nuevo_val
+                            if nuevo_val <= 9999:
+                                nuevo = nuevo_val
+                            else:
+                                print("❌ Número de habitación inválido. No puede exceder 9999 (4 dígitos).")
                         else:
                             print("❌ Número de habitación inválido. No puede ser negativo.")
                     else:
-                        print("❌ Número inválido. Debe tener entre 1 y 6 dígitos numéricos.")
+                        print("❌ Número inválido. Debe tener entre 1 y 4 dígitos numéricos.")
                 
                 elif campo == "tipo":
                     tipos_validos = ["Simple", "Doble", "Triple", "Suite", "Familiar"]
@@ -982,7 +1010,7 @@ def modificar_habitacion(habitaciones_archivo="habitaciones.json"):
         guardar_habitaciones(habitaciones)
         print("✅ Habitación modificada correctamente.")
     else:
-        print("❌ No existe o está inactiva.")
+        print("❌ No existe una habitación con ese ID.")
 
 def eliminar_habitacion():
     """Realiza la baja lógica de una habitación solo si no tiene reservas activas o futuras."""
@@ -1005,6 +1033,18 @@ def eliminar_habitacion():
     if not habitaciones[idh]["activo"]:
         print("❌ La habitación ya está inactiva.")
         return
+    
+    # Mostrar datos de la habitación antes de eliminar
+    print(f"\n📋 Datos de la habitación a eliminar:")
+    print(f"   ID: {idh}")
+    print(f"   Número: {habitaciones[idh]['numero']}")
+    print(f"   Tipo: {habitaciones[idh]['tipo']}")
+    print(f"   Descripción: {habitaciones[idh]['descripcion']}")
+    print(f"   Piso: {habitaciones[idh]['piso']}")
+    print(f"   Estado: {habitaciones[idh]['estado']}")
+    print(f"   Precio por noche: ${habitaciones[idh]['precioNoche']:.2f}")
+    print(f"   Servicios incluidos: {habitaciones[idh]['serviciosIncluidos']}")
+    
     # Verificar reservas activas o futuras
     tiene_reservas = False
     for rid, datos in reservas.items():
@@ -1014,6 +1054,7 @@ def eliminar_habitacion():
                 break
     if tiene_reservas:
         print("❌ No se puede dar de baja: la habitación tiene reservas activas o futuras.")
+        print("⚠️  Todas las habitaciones generadas por defecto tienen reservas activas.\n   Para probar la función de eliminar habitación, cree una nueva sin reservas desde el sistema principal.")
         return
     confirm = input("¿Confirma la baja lógica de la habitación? (s/n): ").strip().lower()
     if confirm == "s":
@@ -1089,7 +1130,6 @@ def solapa_reserva(reservas, id_hab, fecha_inicio_nueva, fecha_fin_nueva):
                 try:
                     dia_e, mes_e, anio_e = int(fe_existente_str[:2]), int(fe_existente_str[2:4]), int(fe_existente_str[4:6])
                     dia_s, mes_s, anio_s = int(fs_existente_str[:2]), int(fs_existente_str[2:4]), int(fs_existente_str[4:6])
-                    
                     # Validar que las fechas existan realmente
                     if es_fecha_valida(dia_e, mes_e, 2000 + anio_e) and es_fecha_valida(dia_s, mes_s, 2000 + anio_s):
                         inicio_existente = datetime.datetime(2000 + anio_e, mes_e, dia_e)
@@ -1117,9 +1157,6 @@ def registrar_reserva(reservas_archivo=ARCHIVO_RESERVAS, huespedes_archivo=ARCHI
             huespedes = json.load(f)
     except FileNotFoundError:
         print("❌ El archivo de huéspedes no existe. No hay datos para mostrar.")
-        return
-    except OSError as detalle:
-        print("❌ Error al intentar abrir archivo(s):", detalle, "¿Existe el archivo y tiene formato JSON válido?")
         return
     try:
         with open(habitaciones_archivo, mode='r', encoding='utf-8') as f:
@@ -1154,22 +1191,22 @@ def registrar_reserva(reservas_archivo=ARCHIVO_RESERVAS, huespedes_archivo=ARCHI
     # Fecha entrada
     fechaEntrada = None
     while fechaEntrada is None:
-        fechaEntrada_input = input("Fecha entrada (DD/MM/AA): ").strip()
+        fechaEntrada_input = input("Fecha entrada (DDMMAA): ").strip()
         if validar_fecha(fechaEntrada_input):
             fechaEntrada = fechaEntrada_input
         else:
-            print("❌ Fecha inválida. Use formato DD/MM/AA.")
+            print("❌ Fecha inválida. Use formato DDMMAA (ej: 150125 para 15/01/25).")
     # Fecha salida
     fechaSalida = None
     while fechaSalida is None:
-        fechaSalida_input = input("Fecha salida (DD/MM/AA): ").strip()
+        fechaSalida_input = input("Fecha salida (DDMMAA): ").strip()
         if validar_fecha(fechaSalida_input):
             if fecha_salida_posterior(fechaEntrada, fechaSalida_input):
                 fechaSalida = fechaSalida_input
             else:
                 print("❌ La fecha de salida debe ser posterior a la de entrada.")
         else:
-            print("❌ Fecha inválida. Use formato DD/MM/AA.")
+            print("❌ Fecha inválida. Use formato DDMMAA (ej: 160125 para 16/01/25).")
     # Calcular cantidad de noches automáticamente
     try:
         dia_e, mes_e, anio_e = int(fechaEntrada[:2]), int(fechaEntrada[2:4]), int(fechaEntrada[4:6])
@@ -1227,14 +1264,20 @@ def listar_reservas(reservas, huespedes, habitaciones):
     if not reservas:
         print("❌ No hay reservas registradas.")
         return
-    encabezado = f"{'ID':<12} | {'Fecha/Hora':<24} | {'Huésped':<18} | {'Habitación':<10} | {'Entrada':<8} | {'Salida':<8} | {'Noches':<6} | {'Desc.':<5}"
+    encabezado = f"{'ID':<12} | {'Fecha/Hora':<24} | {'Huésped':<18} | {'Habitación':<10} | {'Entrada':<8} | {'Salida':<8} | {'Noches':<6} | {'Desc.':<5} | {'Precio':<12}"
     print("-" * len(encabezado))
     print(encabezado)
     print("-" * len(encabezado))
     for rid, datos in reservas.items():
         h = huespedes.get(datos["idhuesped"], {"nombre": "-", "apellido": "-"})
-        hab = habitaciones.get(datos["idhabitacion"], {"numero": "-"})
-        print(f"{rid:<12} | {datos['fechaHoraOperacion']:<24} | {(h['nombre'] + ' ' + h['apellido']):<18} | {str(hab['numero']):<10} | {datos['fechaEntrada']:<8} | {datos['fechaSalida']:<8} | {str(datos['cantidadNoches']):<6} | {str(datos['descuento']):<5}")
+        hab = habitaciones.get(datos["idhabitacion"], {"numero": "-", "precioNoche": 0})
+        
+        # Calcular precio final si no existe o es 0
+        precio_final = datos.get("precioFinal", 0)
+        if precio_final == 0 and "precioNoche" in hab:
+            precio_final = hab["precioNoche"] * datos["cantidadNoches"] * (1 - datos["descuento"]/100)
+        
+        print(f"{rid:<12} | {datos['fechaHoraOperacion']:<24} | {(h['nombre'] + ' ' + h['apellido']):<18} | {str(hab['numero']):<10} | {datos['fechaEntrada']:<8} | {datos['fechaSalida']:<8} | {str(datos['cantidadNoches']):<6} | {str(datos['descuento']):<5} | ${precio_final:<11.2f}")
     print("-" * len(encabezado))
 
 #----------------------------------------------------------------------------------------------
@@ -1256,7 +1299,7 @@ def informe_tabular_mes(reservas, huespedes, habitaciones):
             h = huespedes.get(datos["idhuesped"], {"nombre": "-", "apellido": "-"})
             hab = habitaciones.get(datos["idhabitacion"], {"numero": "-", "tipo": "-", "precioNoche": 0})
             total = hab["precioNoche"] * datos["cantidadNoches"] * (1 - datos["descuento"]/100)
-            print(f"{fecha:<24} | {h['apellido']+', '+h['nombre']:<20} | {hab['tipo']:<14} | {datos['cantidadNoches']:>5} | {hab['precioNoche']:>12.2f} | {total:>14.2f}")
+            print(f"{fecha:<24} | {h['apellido']+', '+h['nombre']:<20} | {hab['tipo']:<14} | {datos['cantidadNoches']:>5} | ${hab['precioNoche']:>11.2f} | ${total:>13.2f}")
             hay = True
     if not hay:
         print("❌ No hay operaciones en el mes actual.")
@@ -1323,7 +1366,7 @@ def informe_matriz_montos(reservas, habitaciones):
     print("-" * len(encabezado))
     for hab_id, meses in matriz.items():
         num_hab = habitaciones.get(hab_id, {}).get('numero', hab_id)
-        linea = f"{str(num_hab):<8}|" + ''.join([f"{int(meses[mes]):8}|" for mes in range(1, 13)])
+        linea = f"{str(num_hab):<8}|" + ''.join([f"${int(meses[mes]):7}|" for mes in range(1, 13)])
         print(linea)
     print("-" * len(encabezado))
 
@@ -1450,6 +1493,7 @@ def mostrar_ayuda_huespedes():
     print("│ • Los emails y teléfonos deben ser únicos                    │")
     print("│ • No se puede eliminar huéspedes con reservas activas        │")
     print("│ • Las eliminaciones son lógicas (no se borran físicamente)   │")
+    print("│ • Se puede reactivar huéspedes inactivos al modificarlos     │")
     print("│ • Los medios de pago se normalizan automáticamente           │")
     print("└──────────────────────────────────────────────────────────────┘")
     print("\n" + "=" * 70)
@@ -1507,6 +1551,7 @@ def mostrar_ayuda_habitaciones():
     print("┌──────────────────────────────────────────────────────────────┐")
     print("│ • No se puede eliminar habitaciones con reservas activas      │")
     print("│ • Las eliminaciones son lógicas (no se borran físicamente)    │")
+    print("│ • Se puede reactivar habitaciones inactivas al modificarlas  │")
     print("└──────────────────────────────────────────────────────────────┘")
     print("\n" + "=" * 70)
     print("✅ Para más información, consulte la documentación del sistema")
@@ -1551,8 +1596,8 @@ def mostrar_ayuda_reservas():
     print("┌──────────────────────────────────────────────────────────────┐")
     print("│ • ID Huésped: debe existir y estar activo                    │")
     print("│ • ID Habitación: debe existir y estar activa                 │")
-    print("│ • Fecha Entrada: DDMMAA (años 25, 26, 27)                    │")
-    print("│ • Fecha Salida: DDMMAA (posterior a entrada)                 │")
+    print("│ • Fecha Entrada: DDMMAA (ej: 150125 para 15/01/25)           │")
+    print("│ • Fecha Salida: DDMMAA (ej: 160125 para 16/01/25)            │")
     print("│ • Descuento: 0-99%                                          │")
     print("└──────────────────────────────────────────────────────────────┘")
     print("\n💡 NOTAS:")
@@ -1561,6 +1606,8 @@ def mostrar_ayuda_reservas():
     print("│ • No se permiten reservas en fechas pasadas                  │")
     print("│ • No se permiten solapamientos de fechas                     │")
     print("│ • Los IDs se generan automáticamente                         │")
+    print("│ • Las noches se calculan automáticamente                     │")
+    print("│ • El precio final incluye descuentos aplicados               │")
     print("└──────────────────────────────────────────────────────────────┘")
     print("\n" + "=" * 70)
     print("✅ Para más información, consulte la documentación del sistema")
