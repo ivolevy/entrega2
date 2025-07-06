@@ -4,6 +4,7 @@ import random
 import string
 import os
 import time
+import re
 
 #----------------------------------------------------------------------------------------------
 # CONSTANTES Y CONFIGURACIÓN
@@ -49,17 +50,21 @@ ARCHIVO_RESERVAS = 'reservas.json'
 # FUNCIONES DE VALIDACIÓN
 #----------------------------------------------------------------------------------------------
 def validar_id(id_valor, tipo="general"):
-    """Valida que un ID cumpla con los requisitos de longitud."""
-    longitud = len(str(id_valor))
-    
+    """Valida que un ID cumpla con los requisitos de longitud y formato (no solo números)."""
+    id_str = str(id_valor)
+    longitud = len(id_str)
     # Para IDs de reserva (formato RSVxxxnnn), debe tener exactamente 9 caracteres
     if tipo == "ID de reserva" and longitud == MAX_LENGTH_ID_RESERVA:
         return True, ""
-    
     # Para otros IDs, usar límites estándar (2-6 caracteres)
     if not (MIN_LENGTH_ID <= longitud <= MAX_LENGTH_ID):
         return False, f"ID debe tener entre {MIN_LENGTH_ID} y {MAX_LENGTH_ID} caracteres"
-    
+    # No permitir solo números
+    if id_str.isdigit():
+        return False, "ID no puede ser solo números"
+    # Solo letras y números
+    if not id_str.isalnum():
+        return False, "ID solo puede contener letras y números"
     return True, ""
 
 def validar_nombre_apellido(texto, campo="texto"):
@@ -151,9 +156,7 @@ def validar_fecha_ddmmaa(fecha_str, tipo="fecha"):
 def validar_unicidad_email_telefono(huespedes, email, telefono, id_excluir=None):
     """Valida que el email y teléfono sean únicos entre huéspedes activos."""
     for idh, datos in huespedes.items():
-        if idh == id_excluir:
-            continue
-        if datos["activo"]:
+        if idh != id_excluir and datos["activo"]:
             if datos["email"] == email:
                 return False, f"Email '{email}' ya existe en huésped {idh}"
             if str(datos["telefono"]) == str(telefono):
@@ -192,15 +195,14 @@ def migrar_reservas_ddmmaa(reservas):
                 anio = int(datos["fechaEntrada"][4:6])
                 if not es_fecha_valida(dia, mes, 2000 + anio):
                     reservas_invalidas.append(rid)
-                    continue
-            # Validar fecha de salida
-            if len(datos["fechaSalida"]) == 6:
-                dia = int(datos["fechaSalida"][:2])
-                mes = int(datos["fechaSalida"][2:4])
-                anio = int(datos["fechaSalida"][4:6])
-                if not es_fecha_valida(dia, mes, 2000 + anio):
-                    reservas_invalidas.append(rid)
-                    continue
+                else:
+                    # Validar fecha de salida
+                    if len(datos["fechaSalida"]) == 6:
+                        dia = int(datos["fechaSalida"][:2])
+                        mes = int(datos["fechaSalida"][2:4])
+                        anio = int(datos["fechaSalida"][4:6])
+                        if not es_fecha_valida(dia, mes, 2000 + anio):
+                            reservas_invalidas.append(rid)
         except (ValueError, IndexError):
             reservas_invalidas.append(rid)
     # Remover reservas con fechas inválidas
@@ -264,6 +266,15 @@ def generar_servicios_aleatorios():
     
     return servicios_str
 
+def validar_email_regex(email):
+    """Valida el email usando una expresión regular estricta."""
+    if len(email) > 254:  # RFC 5321 limit
+        return False, "Email demasiado largo"
+    pat = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    if not re.match(pat, email):
+        return False, "Formato de email inválido"
+    return True, ""
+
 def generar_huespedes():
     """Genera el diccionario de huéspedes con validaciones exhaustivas."""
     print("🔧 Generando huéspedes...")
@@ -316,9 +327,9 @@ def generar_huespedes():
                 errores.append(f"Huésped {idh}: {error}")
                 huésped_válido = False
         
-        # Validar email
+        # Validar email (regex estricta)
         if huésped_válido:
-            valido, error = validar_email(datos["email"])
+            valido, error = validar_email_regex(datos["email"])
             if not valido:
                 errores.append(f"Huésped {idh}: {error}")
                 huésped_válido = False
@@ -465,7 +476,7 @@ def verificar_solapamiento_reserva(reservas, id_hab, fecha_entrada, fecha_salida
                         if fecha_ent < fin_existente and fecha_sal > inicio_existente:
                             return True
                     except (ValueError, IndexError):
-                        continue
+                        pass
         return False
     except (ValueError, IndexError):
         return False
@@ -483,104 +494,105 @@ def generar_reservas(huespedes, habitaciones):
     anio = "25"  # Año fijo 2025
     
     for i in range(10):
-        # Generar ID de reserva único
-        id_reserva = generar_id_reserva(reservas)
+        id_reserva = f"RSV{str(i+1).zfill(3)}ABC"
+        reserva_valida = True
         
         # Validar ID
         valido, error = validar_id(id_reserva, "ID de reserva")
         if not valido:
             errores.append(f"Reserva {i+1}: {error}")
-            continue
+            reserva_valida = False
         
         # Validar formato del ID de reserva
-        valido, error = validar_formato_id_reserva(id_reserva)
-        if not valido:
-            errores.append(f"Reserva {id_reserva}: {error}")
-            continue
+        if reserva_valida:
+            valido, error = validar_formato_id_reserva(id_reserva)
+            if not valido:
+                errores.append(f"Reserva {id_reserva}: {error}")
+                reserva_valida = False
         
         # Generar fechas
-        dia = str(i + 1).zfill(2)
-        fecha_entrada = f"{dia}{mes_actual}{anio}"
-        
-        # Calcular fecha de salida válida (máximo 5 días después, sin exceder el mes)
-        dia_salida = min(i + 5, DIAS_MAX_POR_MES)
-        fecha_salida = f"{str(dia_salida).zfill(2)}{mes_actual}{anio}"
-        
-        # Validar fechas
-        valido, error = validar_fecha_ddmmaa(fecha_entrada, "fecha de entrada")
-        if not valido:
-            errores.append(f"Reserva {id_reserva}: {error}")
-            continue
-        
-        valido, error = validar_fecha_ddmmaa(fecha_salida, "fecha de salida")
-        if not valido:
-            errores.append(f"Reserva {id_reserva}: {error}")
-            continue
-        
-        # Verificar que la fecha de salida sea posterior a la de entrada
-        try:
-            dia_ent = int(fecha_entrada[:2])
-            mes_ent = int(fecha_entrada[2:4])
-            anio_ent = int(fecha_entrada[4:6])
-            dia_sal = int(fecha_salida[:2])
-            mes_sal = int(fecha_salida[2:4])
-            anio_sal = int(fecha_salida[4:6])
+        if reserva_valida:
+            dia = str(i + 1).zfill(2)
+            fecha_entrada = f"{dia}{mes_actual}{anio}"
             
-            fecha_ent = datetime.datetime(2000 + anio_ent, mes_ent, dia_ent)
-            fecha_sal = datetime.datetime(2000 + anio_sal, mes_sal, dia_sal)
+            # Calcular fecha de salida válida (máximo 5 días después, sin exceder el mes)
+            dia_salida = min(i + 5, DIAS_MAX_POR_MES)
+            fecha_salida = f"{str(dia_salida).zfill(2)}{mes_actual}{anio}"
             
-            if fecha_sal <= fecha_ent:
-                errores.append(f"Reserva {id_reserva}: La fecha de salida debe ser posterior a la de entrada")
-                continue
+            # Validar fechas
+            valido, error = validar_fecha_ddmmaa(fecha_entrada, "fecha de entrada")
+            if not valido:
+                errores.append(f"Reserva {id_reserva}: {error}")
+                reserva_valida = False
+            
+            if reserva_valida:
+                valido, error = validar_fecha_ddmmaa(fecha_salida, "fecha de salida")
+                if not valido:
+                    errores.append(f"Reserva {id_reserva}: {error}")
+                    reserva_valida = False
+            
+            # Verificar que la fecha de salida sea posterior a la de entrada
+            if reserva_valida:
+                try:
+                    dia_ent = int(fecha_entrada[:2])
+                    mes_ent = int(fecha_entrada[2:4])
+                    anio_ent = int(fecha_entrada[4:6])
+                    dia_sal = int(fecha_salida[:2])
+                    mes_sal = int(fecha_salida[2:4])
+                    anio_sal = int(fecha_salida[4:6])
+                    
+                    fecha_ent = datetime.datetime(2000 + anio_ent, mes_ent, dia_ent)
+                    fecha_sal = datetime.datetime(2000 + anio_sal, mes_sal, dia_sal)
+                    
+                    if fecha_sal <= fecha_ent:
+                        errores.append(f"Reserva {id_reserva}: La fecha de salida debe ser posterior a la de entrada")
+                        reserva_valida = False
+                    else:
+                        cantidad_noches = (fecha_sal - fecha_ent).days
+                except ValueError:
+                    errores.append(f"Reserva {id_reserva}: Error al calcular fechas")
+                    reserva_valida = False
+            
+            # Seleccionar huésped y habitación
+            if reserva_valida:
+                idh = f"H{(i % len(huespedes)) + 1}"
+                idhab = f"R{(i % len(habitaciones)) + 1}"
                 
-            cantidad_noches = (fecha_sal - fecha_ent).days
-        except ValueError:
-            errores.append(f"Reserva {id_reserva}: Error al calcular fechas")
-            continue
-        
-        # Seleccionar huésped y habitación
-        idh = f"H{(i % len(huespedes)) + 1}"
-        idhab = f"R{(i % len(habitaciones)) + 1}"
-        
-        # Verificar que el huésped y la habitación existen
-        if idh not in huespedes:
-            errores.append(f"Reserva {id_reserva}: Huésped {idh} no existe")
-            continue
-        
-        if idhab not in habitaciones:
-            errores.append(f"Reserva {id_reserva}: Habitación {idhab} no existe")
-            continue
-        
-        # Verificar que el huésped y la habitación están activos
-        if not huespedes[idh]["activo"]:
-            errores.append(f"Reserva {id_reserva}: Huésped {idh} está inactivo")
-            continue
-        
-        if not habitaciones[idhab]["activo"]:
-            errores.append(f"Reserva {id_reserva}: Habitación {idhab} está inactiva")
-            continue
-        
-        # Verificar solapamiento
-        if verificar_solapamiento_reserva(reservas, idhab, fecha_entrada, fecha_salida):
-            errores.append(f"Reserva {id_reserva}: Solapamiento detectado con otra reserva")
-            continue
-        
-        # Generar fecha/hora de operación
-        fecha_hora = f"2025.{mes_actual}.{dia} - {str(10 + i).zfill(2)}:00:00"
-        
-        # Generar descuento
-        descuento = (i % 4) * 5  # 0, 5, 10, 15
-        
-        # Si todas las validaciones pasan, agregar la reserva
-        reservas[id_reserva] = {
-            "idhuesped": idh,
-            "idhabitacion": idhab,
-            "fechaEntrada": fecha_entrada,
-            "fechaSalida": fecha_salida,
-            "cantidadNoches": cantidad_noches,
-            "descuento": descuento,
-            "fechaHoraOperacion": fecha_hora
-        }
+                # Verificar que el huésped y la habitación existen
+                if idh not in huespedes:
+                    errores.append(f"Reserva {id_reserva}: Huésped {idh} no existe")
+                    reserva_valida = False
+                
+                if reserva_valida and idhab not in habitaciones:
+                    errores.append(f"Reserva {id_reserva}: Habitación {idhab} no existe")
+                    reserva_valida = False
+                
+                # Verificar que el huésped y la habitación están activos
+                if reserva_valida and not huespedes[idh]["activo"]:
+                    errores.append(f"Reserva {id_reserva}: Huésped {idh} está inactivo")
+                    reserva_valida = False
+                
+                if reserva_valida and not habitaciones[idhab]["activo"]:
+                    errores.append(f"Reserva {id_reserva}: Habitación {idhab} está inactiva")
+                    reserva_valida = False
+                
+                # Verificar solapamiento
+                if reserva_valida:
+                    if verificar_solapamiento_reserva(reservas, idhab, fecha_entrada, fecha_salida):
+                        # Si hay solapamiento, intentar con otra fecha
+                        pass
+                    else:
+                        # No hay solapamiento, crear la reserva
+                        rid = generar_id_reserva(reservas)
+                        reservas[rid] = {
+                            "idhuesped": idh,
+                            "idhabitacion": idhab,
+                            "fechaEntrada": fecha_entrada,
+                            "fechaSalida": fecha_salida,
+                            "cantidadNoches": cantidad_noches,
+                            "descuento": (i % 4) * 5,  # 0, 5, 10, 15
+                            "fechaHoraOperacion": f"2025.{mes_actual}.{dia} - {str(10 + i).zfill(2)}:00:00"
+                        }
     
     print(f"✅ Reservas generadas: {len(reservas)} exitosas, {len(errores)} errores")
     if errores:
@@ -594,18 +606,7 @@ def generar_reservas(huespedes, habitaciones):
 # FUNCIONES DE PERSISTENCIA
 #----------------------------------------------------------------------------------------------
 def hacer_backup_archivo(ruta):
-    """Hace un backup del archivo si existe."""
-    if os.path.exists(ruta):
-        try:
-            import shutil
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = f"{ruta}.{timestamp}.bak"
-            shutil.copy(ruta, backup_name)
-            print(f"📋 Backup creado: {backup_name}")
-            return True
-        except Exception as e:
-            print(f"⚠️  No se pudo crear backup de {ruta}: {e}")
-            return False
+    """Función de backup deshabilitada."""
     return True
 
 def guardar_archivo_json(datos, archivo, descripcion):
@@ -644,34 +645,33 @@ def validar_integridad_referencial(huespedes, habitaciones, reservas):
     # Verificar solapamientos de reservas
     for rid1, reserva1 in reservas.items():
         for rid2, reserva2 in reservas.items():
-            if rid1 >= rid2:  # Evitar comparar consigo mismo y comparaciones duplicadas
-                continue
-            
-            # Solo verificar solapamientos si es la misma habitación
-            if reserva1['idhabitacion'] == reserva2['idhabitacion']:
-                try:
-                    # Convertir fechas a objetos datetime para comparación
-                    fe1 = reserva1['fechaEntrada']
-                    fs1 = reserva1['fechaSalida']
-                    fe2 = reserva2['fechaEntrada']
-                    fs2 = reserva2['fechaSalida']
-                    
-                    if len(fe1) == 6 and len(fs1) == 6 and len(fe2) == 6 and len(fs2) == 6:
-                        dia_e1, mes_e1, anio_e1 = int(fe1[:2]), int(fe1[2:4]), int(fe1[4:6])
-                        dia_s1, mes_s1, anio_s1 = int(fs1[:2]), int(fs1[2:4]), int(fs1[4:6])
-                        dia_e2, mes_e2, anio_e2 = int(fe2[:2]), int(fe2[2:4]), int(fe2[4:6])
-                        dia_s2, mes_s2, anio_s2 = int(fs2[:2]), int(fs2[2:4]), int(fs2[4:6])
+            if rid1 < rid2:  # Solo comparar cuando rid1 < rid2 para evitar duplicados
+                # Solo verificar solapamientos si es la misma habitación
+                if reserva1['idhabitacion'] == reserva2['idhabitacion']:
+                    try:
+                        # Convertir fechas a objetos datetime para comparación
+                        fe1 = reserva1['fechaEntrada']
+                        fs1 = reserva1['fechaSalida']
+                        fe2 = reserva2['fechaEntrada']
+                        fs2 = reserva2['fechaSalida']
                         
-                        inicio1 = datetime.datetime(2000 + anio_e1, mes_e1, dia_e1)
-                        fin1 = datetime.datetime(2000 + anio_s1, mes_s1, dia_s1)
-                        inicio2 = datetime.datetime(2000 + anio_e2, mes_e2, dia_e2)
-                        fin2 = datetime.datetime(2000 + anio_s2, mes_s2, dia_s2)
-                        
-                        # Verificar solapamiento
-                        if inicio1 < fin2 and fin1 > inicio2:
-                            errores.append(f"Solapamiento detectado: Reserva {rid1} ({fe1}-{fs1}) y {rid2} ({fe2}-{fs2}) en habitación {reserva1['idhabitacion']}")
-                except (ValueError, IndexError) as e:
-                    errores.append(f"Error al validar fechas de reservas {rid1} y {rid2}: {e}")
+                        if len(fe1) == 6 and len(fs1) == 6 and len(fe2) == 6 and len(fs2) == 6:
+                            dia_e1, mes_e1, anio_e1 = int(fe1[:2]), int(fe1[2:4]), int(fe1[4:6])
+                            dia_s1, mes_s1, anio_s1 = int(fs1[:2]), int(fs1[2:4]), int(fs1[4:6])
+                            dia_e2, mes_e2, anio_e2 = int(fe2[:2]), int(fe2[2:4]), int(fe2[4:6])
+                            dia_s2, mes_s2, anio_s2 = int(fs2[:2]), int(fs2[2:4]), int(fs2[4:6])
+                            
+                            inicio1 = datetime.datetime(2000 + anio_e1, mes_e1, dia_e1)
+                            fin1 = datetime.datetime(2000 + anio_s1, mes_s1, dia_s1)
+                            inicio2 = datetime.datetime(2000 + anio_e2, mes_e2, dia_e2)
+                            fin2 = datetime.datetime(2000 + anio_s2, mes_s2, dia_s2)
+                            
+                            # Verificar solapamiento
+                            if inicio1 < fin2 and fin1 > inicio2:
+                                errores.append(f"Solapamiento detectado: Reserva {rid1} ({fe1}-{fs1}) y {rid2} ({fe2}-{fs2}) en habitación {reserva1['idhabitacion']}")
+                            # Si no hay solapamiento, continuar con la siguiente comparación
+                    except (ValueError, IndexError) as e:
+                        errores.append(f"Error al validar fechas de reservas {rid1} y {rid2}: {e}")
     
     if errores:
         print(f"❌ Se encontraron {len(errores)} errores de integridad:")
